@@ -41,3 +41,8 @@ require_once CMS_PLUGIN_DIR_PATH . 'includes/scripts.php';
 
 //actions and filters
 require_once CMS_PLUGIN_DIR_PATH . 'includes/hooks.php';
+
+//include CPT, Taxonomy and metaboxes
+require_once CMS_PLUGIN_DIR_PATH . 'includes/cpt.php';
+require_once CMS_PLUGIN_DIR_PATH . 'includes/taxonomy.php';
+require_once CMS_PLUGIN_DIR_PATH . 'includes/metaboxes.php';
