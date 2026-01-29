@@ -20,21 +20,24 @@ if (!defined('CMS_PLUGIN_VERSION')) {
 }
 if (!defined('CMS_PLUGIN_DIR_PATH')) {
     define('CMS_PLUGIN_DIR_PATH', plugin_dir_path(__FILE__));
-    print_r(CMS_PLUGIN_DIR_PATH);
+    // print_r(CMS_PLUGIN_DIR_PATH);
 }
 
 if (!defined('CMS_PLUGIN_DIR_URL')) {
     define('CMS_PLUGIN_DIR_URL', plugin_dir_url(__FILE__));
-    print_r(CMS_PLUGIN_DIR_URL);
+    // print_r(CMS_PLUGIN_DIR_URL);
 }
 if (!defined('CMS_PLUGIN_URL')) {
     define('CMS_PLUGIN_URL', plugins_url(__FILE__));
-    print_r(CMS_PLUGIN_URL);
+    // print_r(CMS_PLUGIN_URL);
 }
 if (!defined('CMS_PLUGIN_BASENAME')) {
     define('CMS_PLUGIN_BASENAME', plugin_basename(__FILE__));
-    print_r(CMS_PLUGIN_BASENAME);
+    // print_r(CMS_PLUGIN_BASENAME);
 }
 
 // include scripts and styles
-require_once CMS_PLUGIN_DIR_PATH.'includes/scripts.php';
+require_once CMS_PLUGIN_DIR_PATH . 'includes/scripts.php';
+
+//actions and filters
+require_once CMS_PLUGIN_DIR_PATH . 'includes/hooks.php';
