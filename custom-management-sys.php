@@ -53,3 +53,4 @@ require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes.php';
 //admin side menus
 require_once CMS_PLUGIN_DIR_PATH . 'includes/admin-menu.php';
 require_once CMS_PLUGIN_DIR_PATH . 'includes/admin-page.php';
+require_once CMS_PLUGIN_DIR_PATH . 'includes/admin-settings.php';

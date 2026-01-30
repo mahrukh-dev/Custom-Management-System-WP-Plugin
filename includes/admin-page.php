@@ -6,10 +6,10 @@ function cms_options_page_html() {
       <form action="options.php" method="post">
         <?php
         // output security fields for the registered setting "wporg_options"
-        settings_fields( 'wporg_options' );
+        settings_fields( 'cms-plugin' );
         // output setting sections and their fields
         // (sections are registered for "wporg", each field is registered to a specific section)
-        do_settings_sections( 'wporg' );
+        do_settings_sections( 'cms-plugin' );
         // output save settings button
         submit_button( __( 'Save Settings', 'custom-management-sys' ) );
         ?>
@@ -25,10 +25,10 @@ function cms_options_subpage_html() {
       <form action="options.php" method="post">
         <?php
         // output security fields for the registered setting "wporg_options"
-        settings_fields( 'wporg_options' );
+        settings_fields( 'cms-plugin' );
         // output setting sections and their fields
         // (sections are registered for "wporg", each field is registered to a specific section)
-        do_settings_sections( 'wporg' );
+        do_settings_sections( 'cms-plugin' );
         // output save settings button
         submit_button( __( 'Save Settings', 'custom-management-sys' ) );
         ?>
