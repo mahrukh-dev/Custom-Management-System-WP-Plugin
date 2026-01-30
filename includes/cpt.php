@@ -12,6 +12,7 @@ function cms_register_projects_post_type() {
         'edit_item'            => __('Edit Project', 'custom-management-sys'),
         'update_item'          => __('Update Project', 'custom-management-sys'),
         'search_items'         => __('Search Project', 'custom-management-sys'),
+        'view_item'            => __('View Project', 'custom-management-sys'),
     );
 
     $args = array(
@@ -30,7 +31,11 @@ function cms_register_projects_post_type() {
         'exclude_from_search'   => false,
         'publicly_queryable'    => true,
         'capability_type'       => 'post',
-        'show_in_rest' => true,
+        'rewrite'               => array(
+            'slug' => 'projects', // Explicit slug
+            'with_front' => false, // Important: don't prepend with blog prefix
+        ),
+        // 'show_in_rest' => true,
     );
 
     register_post_type('projects', $args);

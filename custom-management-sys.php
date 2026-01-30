@@ -46,3 +46,6 @@ require_once CMS_PLUGIN_DIR_PATH . 'includes/hooks.php';
 require_once CMS_PLUGIN_DIR_PATH . 'includes/cpt.php';
 require_once CMS_PLUGIN_DIR_PATH . 'includes/taxonomy.php';
 require_once CMS_PLUGIN_DIR_PATH . 'includes/metaboxes.php';
+
+// include shortcodes
+require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes.php';
