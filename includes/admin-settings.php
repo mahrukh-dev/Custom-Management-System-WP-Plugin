@@ -14,10 +14,17 @@ function cms_settings_init() {
 		'cms-plugin'
 	);
 
+    add_settings_section(
+		'cms_settings_section_2',
+		'Misc Settings Section', 
+        'cms_settings_section_callback',
+		'cms-plugin'
+	);
+
 	// register a new field in the "wporg_settings_section" section, inside the "reading" page
 	add_settings_field(
 		'cms_settings_field',
-		'CMS Setting', 
+		'CMS Text field', 
         'cms_settings_field_callback',
 		'cms-plugin',
 		'cms_settings_section'
@@ -26,10 +33,10 @@ function cms_settings_init() {
     // register a new field in the "wporg_settings_section" section, inside the "reading" page
 	add_settings_field(
 		'cms_settings_field_2',
-		'CMS Setting', 
+		'Checkbox fied', 
         'cms_settings_field_callback_2',
 		'cms-plugin',
-		'cms_settings_section'
+		'cms_settings_section_2'
 	);
 }
 
@@ -60,8 +67,9 @@ function cms_settings_field_callback() {
 function cms_settings_field_callback_2() {
 	// get the value of the setting we've registered with register_setting()
 	$setting = get_option('cms_setting_field_checkbox');
-	// output the field
+    //print_r( $setting );
+    // output the field
 	?>
-	<input type="checkbox" name="cms_setting_field_checkbox">
+	<input type="checkbox" name="cms_setting_field_checkbox" <?php echo($setting == 'on' ? 'checked' : '')?>>
     <?php
 }
