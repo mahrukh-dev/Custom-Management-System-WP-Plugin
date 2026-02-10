@@ -58,10 +58,15 @@ require_once CMS_PLUGIN_DIR_PATH . 'includes/metaboxes.php';
 require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes.php';
 
 //admin side menus
-require_once CMS_PLUGIN_DIR_PATH . 'includes/admin-menu.php';
+// require_once CMS_PLUGIN_DIR_PATH . 'includes/admin-menu.php';
 require_once CMS_PLUGIN_DIR_PATH . 'includes/admin-page.php';
 require_once CMS_PLUGIN_DIR_PATH . 'includes/admin-settings.php';
 
 //DATABASE
 register_activation_hook( __FILE__, 'cms_reactions_table' );
 require_once plugin_dir_path( __FILE__ ).'includes/db.php';
+
+//main plugin class
+require_once CMS_PLUGIN_DIR_PATH . 'includes/plugin.php';
+
+require_once CMS_PLUGIN_DIR_PATH . 'includes/voting.php';

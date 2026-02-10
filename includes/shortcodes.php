@@ -95,3 +95,30 @@ function CMS_project_meta_shortcode($atts) {
 
 }
 add_shortcode( 'PROJECT_META', 'CMS_project_meta_shortcode' );
+
+function CMS_post_voting_buttons($atts) {
+    $attrs = shortcode_atts(
+        array(
+            'like' => 'Like',
+            'dislike' => 'Dislike',
+        ), $atts, 'PROJECT_META'
+    );
+    $post_id = get_the_ID();
+    $user_id = get_current_user_id();
+    $html ='<div class="cms-votting-buttons">';
+    $html .= sprintf(
+        '<button class="cms-like" data-post-id="%s" data-user-id="%s">%s</button>',
+        esc_attr( $post_id),
+        esc_attr( $user_id ),
+        esc_html($attrs['like'])
+    );
+    $html .= sprintf(
+        '<button class="cms-dislike" data-post-id="%s" data-user-id="%s">%s</button>',
+        esc_attr( $post_id),
+        esc_attr( $user_id ),
+        esc_html($attrs['dislike'])
+    );
+    $html .= '</div>';
+    return $html;
+}
+add_shortcode( 'VOTING_BUTTONS', 'CMS_post_voting_buttons' );
