@@ -36,6 +36,13 @@ if (!defined('CMS_PLUGIN_BASENAME')) {
     // print_r(CMS_PLUGIN_BASENAME);
 }
 
+if (!defined('CMS_PLUGIN_DB_VER')) {
+    define('CMS_PLUGIN_DB_VER', '1.0.2');
+    // print_r(CMS_PLUGIN_BASENAME);
+}
+
+
+
 // include scripts and styles
 require_once CMS_PLUGIN_DIR_PATH . 'includes/scripts.php';
 
@@ -54,3 +61,7 @@ require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes.php';
 require_once CMS_PLUGIN_DIR_PATH . 'includes/admin-menu.php';
 require_once CMS_PLUGIN_DIR_PATH . 'includes/admin-page.php';
 require_once CMS_PLUGIN_DIR_PATH . 'includes/admin-settings.php';
+
+//DATABASE
+register_activation_hook( __FILE__, 'cms_reactions_table' );
+require_once plugin_dir_path( __FILE__ ).'includes/db.php';
