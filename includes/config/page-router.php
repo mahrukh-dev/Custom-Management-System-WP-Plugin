@@ -72,9 +72,7 @@ function cms_create_required_pages() {
             'content' => '[cms_view_admin]'
         ],
         
-        // ==============================================
-        // EMPLOYEE PAGES - ADD THESE
-        // ==============================================
+        // Employee pages
         [
             'slug' => 'employee-list',
             'title' => 'Employee Management',
@@ -94,6 +92,37 @@ function cms_create_required_pages() {
             'slug' => 'view-employee',
             'title' => 'View Employee',
             'content' => '[cms_view_employee]'
+        ],
+        
+        // Corporate Account pages
+        [
+            'slug' => 'corp-accounts',
+            'title' => 'Corporate Accounts',
+            'content' => '[cms_list_corp_acc]'
+        ],
+        [
+            'slug' => 'add-corp-account',
+            'title' => 'Add Corporate Account',
+            'content' => '[cms_corp_acc_form]'
+        ],
+        [
+            'slug' => 'edit-corp-account',
+            'title' => 'Edit Corporate Account',
+            'content' => '[cms_update_corp_acc]'
+        ],
+        [
+            'slug' => 'view-corp-account',
+            'title' => 'View Corporate Account',
+            'content' => '[cms_view_corp_acc]'
+        ],
+        
+        // ==============================================
+        // EMPLOYEE CORPORATE ASSIGNMENT PAGE - ADD THIS
+        // ==============================================
+        [
+            'slug' => 'emp-corp-assign',
+            'title' => 'Employee Corporate Assignment',
+            'content' => '[cms_emp_corp_assign title="Employee Corporate Account Assignment" show_filters="yes" show_search="yes"]'
         ]
     ];
 
@@ -157,9 +186,7 @@ function cms_add_rewrite_rules() {
         'top'
     );
     
-    // ==============================================
-    // EMPLOYEE REWRITE RULES - ADD THESE
-    // ==============================================
+    // Employee rewrite rules
     add_rewrite_rule(
         '^view-employee/([0-9]+)/?$',
         'index.php?pagename=view-employee&employee_id=$matches[1]',
@@ -172,7 +199,20 @@ function cms_add_rewrite_rules() {
         'top'
     );
     
-    error_log('CMS: Rewrite rules added for Main Admin, Admin, and Employee');
+    // Corporate Account rewrite rules
+    add_rewrite_rule(
+        '^view-corp-account/([0-9]+)/?$',
+        'index.php?pagename=view-corp-account&corp_id=$matches[1]',
+        'top'
+    );
+    
+    add_rewrite_rule(
+        '^edit-corp-account/([0-9]+)/?$',
+        'index.php?pagename=edit-corp-account&corp_id=$matches[1]',
+        'top'
+    );
+    
+    error_log('CMS: Rewrite rules added for all modules');
 }
 add_action('init', 'cms_add_rewrite_rules', 10);
 
@@ -181,8 +221,10 @@ add_action('init', 'cms_add_rewrite_rules', 10);
  */
 function cms_add_query_vars($vars) {
     $vars[] = 'admin_id';
-    $vars[] = 'employee_id'; // ADD THIS
-    error_log('CMS: Query vars registered - admin_id, employee_id added');
+    $vars[] = 'employee_id';
+    $vars[] = 'corp_id';
+    $vars[] = 'assignment_id';
+    error_log('CMS: Query vars registered - admin_id, employee_id, corp_id, assignment_id');
     return $vars;
 }
 add_filter('query_vars', 'cms_add_query_vars', 99);
@@ -199,7 +241,9 @@ function cms_debug_rewrites() {
         if (strpos($pattern, 'view-admin') !== false || 
             strpos($pattern, 'edit-admin') !== false ||
             strpos($pattern, 'view-employee') !== false || 
-            strpos($pattern, 'edit-employee') !== false) {
+            strpos($pattern, 'edit-employee') !== false ||
+            strpos($pattern, 'view-corp-account') !== false || 
+            strpos($pattern, 'edit-corp-account') !== false) {
             error_log($pattern . ' => ' . $query);
         }
     }

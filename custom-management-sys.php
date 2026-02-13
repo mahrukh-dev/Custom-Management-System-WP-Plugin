@@ -74,6 +74,14 @@ require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes/employee/cms_create_empl
 require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes/employee/cms_list_employee.php';
 require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes/employee/cms_update_employee.php';
 require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes/employee/cms_view_employee.php';
+// corp acc shortcodes
+require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes/corporate/cms_create_corp_acc.php';
+require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes/corporate/cms_list_corp_acc.php';
+require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes/corporate/cms_update_corp_acc.php';
+require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes/corporate/cms_view_corp_acc.php';
+// assignments
+require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes/assignments/cms_emp_corp_assign.php';
+
 
 // Load slug configuration
 require_once CMS_PLUGIN_DIR_PATH . 'includes/config/slugs.php';
