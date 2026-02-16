@@ -1,9 +1,10 @@
 <?php
 /**
  * CMS List Corporate Accounts Shortcode
- * Display all corporate accounts in a table with actions
+ * Display all corporate accounts from database in a table with actions
  * 
  * Usage: [cms_list_corp_acc]
+ * Usage: [cms_list_corp_acc items_per_page="10" show_search="yes" show_filters="yes"]
  */
 
 // Prevent direct access
@@ -16,6 +17,9 @@ if (!defined('CMS_CORP_ACC_LIST_SHORTCODE')) {
     define('CMS_CORP_ACC_LIST_SHORTCODE', 'cms_corp_acc_list');
 }
 
+/**
+ * List Corporate Accounts Shortcode
+ */
 function cms_list_corp_acc_shortcode($atts) {
     $atts = shortcode_atts(
         array(
@@ -25,54 +29,97 @@ function cms_list_corp_acc_shortcode($atts) {
             'actions' => 'view,update,delete',
             'no_data_message' => 'No corporate accounts found.',
             'table_class' => '',
-            'create_page' => 'add-corp-account',
             'edit_page' => 'edit-corp-account',
             'view_page' => 'view-corp-account',
+            'show_status' => 'yes',
+            'show_created_date' => 'no',
+            'show_updated_date' => 'no'
         ),
         $atts,
         'cms_list_corp_acc'
     );
     
-    ob_start();
+    // Get corporate accounts from database
+    $corp_accounts = cms_get_all_corporate_accounts_from_db();
     
-    $corp_data = get_cms_mock_corp_data();
+    // Get current page for pagination
+    $current_page = isset($_GET['corp_page']) ? max(1, intval($_GET['corp_page'])) : 1;
+    $items_per_page = intval($atts['items_per_page']);
+    $total_items = count($corp_accounts);
+    $total_pages = ceil($total_items / $items_per_page);
+    
+    // Slice array for pagination
+    $offset = ($current_page - 1) * $items_per_page;
+    $paged_accounts = array_slice($corp_accounts, $offset, $items_per_page);
+    
+    ob_start();
     ?>
     
     <style>
     /* Corporate Account List Styles - Purple/Blue Theme */
+    :root {
+        --corp-primary: #6c5ce7;
+        --corp-primary-dark: #5649c0;
+        --corp-primary-light: #a29bfe;
+        --corp-secondary: #00cec9;
+        --corp-accent: #0984e3;
+        --corp-success: #00b894;
+        --corp-danger: #d63031;
+        --corp-warning: #fdcb6e;
+        --corp-bg-light: #f5f0ff;
+        --corp-border: #d9d0ff;
+    }
+    
     .cms-corp-list-container {
-        max-width: 1300px;
+        max-width: 1400px;
         margin: 30px auto;
         background: #ffffff;
-        border-radius: 16px;
-        box-shadow: 0 5px 20px rgba(108,92,231,0.05);
-        padding: 25px;
+        border-radius: 20px;
+        box-shadow: 0 10px 40px rgba(108,92,231,0.08);
+        padding: 30px;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        border-top: 4px solid #6c5ce7;
+        border-top: 5px solid var(--corp-primary);
     }
     
     .cms-corp-list-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 25px;
+        margin-bottom: 30px;
         flex-wrap: wrap;
-        gap: 15px;
+        gap: 20px;
     }
     
     .cms-corp-list-title {
         margin: 0;
-        font-size: 24px;
+        font-size: 28px;
         font-weight: 700;
-        color: #5649c0;
+        color: var(--corp-primary-dark);
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 12px;
+        letter-spacing: -0.5px;
     }
     
     .cms-corp-list-title:before {
         content: '🏢';
-        font-size: 28px;
+        font-size: 32px;
+    }
+    
+    .cms-corp-stats {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+    }
+    
+    .cms-corp-stat-badge {
+        background: var(--corp-bg-light);
+        padding: 8px 16px;
+        border-radius: 40px;
+        color: var(--corp-primary-dark);
+        font-size: 14px;
+        font-weight: 500;
+        border: 1px solid var(--corp-border);
     }
     
     .cms-corp-search-box {
@@ -82,23 +129,23 @@ function cms_list_corp_acc_shortcode($atts) {
     }
     
     .cms-corp-search-input {
-        padding: 12px 16px;
-        border: 2px solid #d9d0ff;
+        padding: 12px 20px;
+        border: 2px solid var(--corp-border);
         border-radius: 40px;
-        width: 280px;
+        width: 300px;
         font-size: 14px;
         transition: all 0.25s ease;
     }
     
     .cms-corp-search-input:focus {
         outline: none;
-        border-color: #6c5ce7;
-        box-shadow: 0 0 0 3px rgba(108,92,231,0.05);
+        border-color: var(--corp-primary);
+        box-shadow: 0 0 0 4px rgba(108,92,231,0.05);
     }
     
     .cms-corp-search-button {
-        padding: 12px 24px;
-        background: #6c5ce7;
+        padding: 12px 28px;
+        background: linear-gradient(145deg, var(--corp-primary), var(--corp-primary-dark));
         color: white;
         border: none;
         border-radius: 40px;
@@ -109,85 +156,101 @@ function cms_list_corp_acc_shortcode($atts) {
     }
     
     .cms-corp-search-button:hover {
-        background: #5649c0;
+        background: linear-gradient(145deg, var(--corp-primary-dark), #4338b0);
         transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(108,92,231,0.2);
     }
     
     .cms-corp-filters {
-        background: #f5f0ff;
+        background: var(--corp-bg-light);
         padding: 20px;
-        border-radius: 12px;
-        margin-bottom: 25px;
+        border-radius: 16px;
+        margin-bottom: 30px;
         display: flex;
         gap: 15px;
         flex-wrap: wrap;
-        border: 1px solid #d9d0ff;
+        border: 1px solid var(--corp-border);
     }
     
     .cms-corp-filter-select {
-        padding: 10px 16px;
-        border: 1px solid #d9d0ff;
+        padding: 10px 18px;
+        border: 1px solid var(--corp-border);
         border-radius: 8px;
         background: white;
         min-width: 150px;
         font-size: 14px;
+        color: #2c3e50;
+    }
+    
+    .cms-corp-filter-select:focus {
+        outline: none;
+        border-color: var(--corp-primary);
     }
     
     .cms-corp-table-responsive {
         overflow-x: auto;
-        margin-bottom: 25px;
+        margin-bottom: 30px;
+        border-radius: 12px;
+        border: 1px solid var(--corp-border);
     }
     
     .cms-corp-table {
         width: 100%;
         border-collapse: collapse;
         font-size: 14px;
+        background: white;
     }
     
     .cms-corp-table th {
-        background: #f5f0ff;
-        color: #5649c0;
+        background: var(--corp-bg-light);
+        color: var(--corp-primary-dark);
         font-weight: 600;
         padding: 16px 12px;
         text-align: left;
-        border-bottom: 2px solid #d9d0ff;
+        border-bottom: 2px solid var(--corp-border);
         white-space: nowrap;
     }
     
     .cms-corp-table td {
         padding: 16px 12px;
-        border-bottom: 1px solid #d9d0ff;
-        color: #4a5568;
+        border-bottom: 1px solid var(--corp-border);
+        color: #2c3e50;
         vertical-align: middle;
     }
     
     .cms-corp-table tr:hover {
-        background: #f5f0ff;
+        background: var(--corp-bg-light);
+    }
+    
+    .cms-corp-table tr:last-child td {
+        border-bottom: none;
     }
     
     .cms-corp-avatar {
-        width: 40px;
-        height: 40px;
-        background: linear-gradient(145deg, #6c5ce7, #5649c0);
+        width: 45px;
+        height: 45px;
+        background: linear-gradient(145deg, var(--corp-primary), var(--corp-primary-dark));
         color: white;
-        border-radius: 8px;
+        border-radius: 12px;
         display: flex;
         align-items: center;
         justify-content: center;
         font-weight: 600;
-        font-size: 18px;
+        font-size: 20px;
+        flex-shrink: 0;
     }
     
     .cms-corp-info {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 15px;
     }
     
     .cms-corp-company {
         font-weight: 600;
-        color: #2c3e50;
+        color: var(--corp-primary-dark);
         margin-bottom: 4px;
+        font-size: 15px;
     }
     
     .cms-corp-contact {
@@ -197,50 +260,100 @@ function cms_list_corp_acc_shortcode($atts) {
     
     .cms-corp-username {
         font-size: 11px;
-        color: #6c5ce7;
+        color: var(--corp-primary);
+        background: var(--corp-bg-light);
+        padding: 2px 8px;
+        border-radius: 12px;
+        display: inline-block;
+        margin-top: 3px;
     }
     
-    .cms-corp-industry-badge {
-        display: inline-block;
-        padding: 4px 12px;
-        border-radius: 40px;
+    .cms-corp-email-cell {
+        max-width: 200px;
+    }
+    
+    .cms-corp-email {
+        color: var(--corp-primary);
+        text-decoration: none;
+        font-weight: 500;
+        word-break: break-all;
+    }
+    
+    .cms-corp-email:hover {
+        text-decoration: underline;
+    }
+    
+    .cms-corp-phone {
         font-size: 12px;
-        font-weight: 500;
-        background: #f5f0ff;
-        color: #5649c0;
+        color: #718096;
+        margin-top: 3px;
     }
     
-    .cms-corp-size-badge {
-        display: inline-block;
-        padding: 4px 8px;
-        border-radius: 4px;
-        font-size: 11px;
-        font-weight: 500;
-        background: #00cec9;
+    .cms-corp-address {
+        max-width: 250px;
+        white-space: normal;
+        line-height: 1.4;
+        font-size: 13px;
+        color: #4a5568;
+    }
+    
+    .cms-corp-website-link {
+        color: var(--corp-primary);
+        text-decoration: none;
+        font-size: 13px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 10px;
+        background: var(--corp-bg-light);
+        border-radius: 20px;
+        border: 1px solid var(--corp-border);
+        transition: all 0.2s ease;
+    }
+    
+    .cms-corp-website-link:hover {
+        background: var(--corp-primary);
         color: white;
+        border-color: var(--corp-primary);
     }
     
     .cms-corp-status {
         display: inline-block;
-        padding: 4px 10px;
+        padding: 6px 14px;
         border-radius: 40px;
         font-size: 12px;
-        font-weight: 500;
+        font-weight: 600;
+        letter-spacing: 0.3px;
     }
     
     .cms-corp-status.active {
         background: #e3f7ec;
         color: #0a5c36;
+        border: 1px solid #b8e0c2;
     }
     
     .cms-corp-status.inactive {
         background: #ffe8e8;
         color: #b34141;
+        border: 1px solid #ffc9c9;
     }
     
     .cms-corp-status.suspended {
         background: #fff3cd;
         color: #856404;
+        border: 1px solid #ffeeba;
+    }
+    
+    .cms-corp-date {
+        font-size: 12px;
+        color: #718096;
+        white-space: nowrap;
+    }
+    
+    .cms-corp-date strong {
+        color: #2c3e50;
+        display: block;
+        margin-bottom: 2px;
     }
     
     .cms-corp-action-buttons {
@@ -251,7 +364,7 @@ function cms_list_corp_acc_shortcode($atts) {
     
     .cms-corp-action-btn {
         padding: 8px 14px;
-        border-radius: 6px;
+        border-radius: 8px;
         font-size: 12px;
         font-weight: 500;
         text-decoration: none;
@@ -264,14 +377,15 @@ function cms_list_corp_acc_shortcode($atts) {
     }
     
     .cms-corp-btn-view {
-        background: #f5f0ff;
-        color: #6c5ce7;
-        border: 1px solid #d9d0ff;
+        background: var(--corp-bg-light);
+        color: var(--corp-primary);
+        border: 1px solid var(--corp-border);
     }
     
     .cms-corp-btn-view:hover {
-        background: #d9d0ff;
-        color: #5649c0;
+        background: var(--corp-primary);
+        color: white;
+        border-color: var(--corp-primary);
     }
     
     .cms-corp-btn-edit {
@@ -296,13 +410,6 @@ function cms_list_corp_acc_shortcode($atts) {
         color: #8b2c2c;
     }
     
-    .cms-corp-btn-website {
-        background: #e0f2fe;
-        color: #0369a1;
-        border: 1px solid #bae6fd;
-        text-decoration: none;
-    }
-    
     .cms-corp-pagination {
         display: flex;
         justify-content: center;
@@ -313,59 +420,176 @@ function cms_list_corp_acc_shortcode($atts) {
     }
     
     .cms-corp-page-link {
-        padding: 10px 16px;
+        padding: 10px 18px;
         background: white;
-        border: 1px solid #d9d0ff;
+        border: 1px solid var(--corp-border);
         border-radius: 8px;
         color: #4a5568;
         text-decoration: none;
         font-size: 14px;
+        font-weight: 500;
         transition: all 0.2s ease;
     }
     
     .cms-corp-page-link:hover {
-        background: #f5f0ff;
-        border-color: #6c5ce7;
-        color: #6c5ce7;
+        background: var(--corp-bg-light);
+        border-color: var(--corp-primary);
+        color: var(--corp-primary);
     }
     
     .cms-corp-page-link.active {
-        background: #6c5ce7;
+        background: var(--corp-primary);
         color: white;
-        border-color: #6c5ce7;
+        border-color: var(--corp-primary);
+    }
+    
+    .cms-corp-page-link.disabled {
+        opacity: 0.5;
+        pointer-events: none;
+        cursor: not-allowed;
     }
     
     .cms-corp-no-data {
         text-align: center;
-        padding: 60px 20px;
+        padding: 80px 20px;
         color: #718096;
         font-size: 16px;
-        background: #f5f0ff;
-        border-radius: 12px;
+        background: var(--corp-bg-light);
+        border-radius: 16px;
+        border: 2px dashed var(--corp-border);
     }
     
     .cms-corp-no-data:before {
         content: '🏢';
         display: block;
         font-size: 48px;
-        margin-bottom: 15px;
+        margin-bottom: 20px;
         opacity: 0.5;
     }
     
-    .cms-corp-website-link {
-        color: #6c5ce7;
-        text-decoration: none;
-        font-size: 12px;
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
+    .cms-corp-loading {
+        text-align: center;
+        padding: 50px;
+        color: var(--corp-primary);
     }
     
-    .cms-corp-website-link:hover {
-        text-decoration: underline;
+    .cms-corp-spinner {
+        display: inline-block;
+        width: 40px;
+        height: 40px;
+        border: 3px solid var(--corp-border);
+        border-top: 3px solid var(--corp-primary);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-bottom: 15px;
+    }
+    
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    
+    /* Delete Modal Styles */
+    .cms-corp-modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        z-index: 9999;
+        align-items: center;
+        justify-content: center;
+        backdrop-filter: blur(5px);
+    }
+    
+    .cms-corp-modal-content {
+        background: white;
+        padding: 30px;
+        border-radius: 20px;
+        max-width: 500px;
+        width: 90%;
+        border-top: 5px solid var(--corp-danger);
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    
+    .cms-corp-modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        padding-bottom: 15px;
+        border-bottom: 2px solid #f0f0f0;
+    }
+    
+    .cms-corp-modal-header h3 {
+        margin: 0;
+        color: var(--corp-danger);
+        font-size: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .cms-corp-modal-close {
+        background: none;
+        border: none;
+        font-size: 28px;
+        cursor: pointer;
+        color: #718096;
+    }
+    
+    .cms-corp-modal-body {
+        padding: 20px 0;
+    }
+    
+    .cms-corp-modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+        margin-top: 20px;
+    }
+    
+    .cms-corp-modal-btn {
+        padding: 12px 24px;
+        border: none;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    
+    .cms-corp-modal-btn-cancel {
+        background: #e2e8f0;
+        color: #4a5568;
+    }
+    
+    .cms-corp-modal-btn-cancel:hover {
+        background: #cbd5e0;
+    }
+    
+    .cms-corp-modal-btn-delete {
+        background: var(--corp-danger);
+        color: white;
+    }
+    
+    .cms-corp-modal-btn-delete:hover {
+        background: #b91c1c;
+    }
+    
+    .cms-corp-modal-btn-delete:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
     }
     
     @media (max-width: 768px) {
+        .cms-corp-list-container {
+            padding: 20px;
+            margin: 15px;
+        }
+        
         .cms-corp-list-header {
             flex-direction: column;
             align-items: stretch;
@@ -379,9 +603,27 @@ function cms_list_corp_acc_shortcode($atts) {
             width: 100%;
         }
         
+        .cms-corp-filters {
+            flex-direction: column;
+        }
+        
+        .cms-corp-filter-select {
+            width: 100%;
+        }
+        
         .cms-corp-table th,
         .cms-corp-table td {
             padding: 12px 8px;
+            font-size: 13px;
+        }
+        
+        .cms-corp-action-buttons {
+            flex-direction: column;
+        }
+        
+        .cms-corp-action-btn {
+            width: 100%;
+            justify-content: center;
         }
     }
     </style>
@@ -389,37 +631,29 @@ function cms_list_corp_acc_shortcode($atts) {
     <div class="cms-corp-list-container <?php echo esc_attr($atts['table_class']); ?>">
         
         <div class="cms-corp-list-header">
-            <h2 class="cms-corp-list-title">Corporate Account Management</h2>
+            <div>
+                <h2 class="cms-corp-list-title">Corporate Account Management</h2>
+                <div class="cms-corp-stats">
+                    <span class="cms-corp-stat-badge">Total: <?php echo count($corp_accounts); ?></span>
+                    <?php
+                    $active_count = count(array_filter($corp_accounts, function($c) { return $c->status === 'active'; }));
+                    if ($active_count > 0):
+                    ?>
+                    <span class="cms-corp-stat-badge">Active: <?php echo $active_count; ?></span>
+                    <?php endif; ?>
+                </div>
+            </div>
             
             <?php if ($atts['show_search'] === 'yes'): ?>
             <div class="cms-corp-search-box">
                 <input type="text" id="cms-corp-search" class="cms-corp-search-input" placeholder="Search by company, contact, email...">
-                <button class="cms-corp-search-button">Search</button>
+                <button class="cms-corp-search-button" id="cms-corp-search-btn">Search</button>
             </div>
             <?php endif; ?>
         </div>
         
-        <?php if ($atts['show_filters'] === 'yes'): ?>
+        <?php if ($atts['show_filters'] === 'yes' && !empty($corp_accounts)): ?>
         <div class="cms-corp-filters">
-            <select class="cms-corp-filter-select" id="filter-industry">
-                <option value="">All Industries</option>
-                <option value="technology">Technology</option>
-                <option value="finance">Finance</option>
-                <option value="healthcare">Healthcare</option>
-                <option value="education">Education</option>
-                <option value="manufacturing">Manufacturing</option>
-                <option value="retail">Retail</option>
-            </select>
-            
-            <select class="cms-corp-filter-select" id="filter-size">
-                <option value="">All Sizes</option>
-                <option value="1-10">1-10</option>
-                <option value="11-50">11-50</option>
-                <option value="51-200">51-200</option>
-                <option value="201-500">201-500</option>
-                <option value="500+">500+</option>
-            </select>
-            
             <select class="cms-corp-filter-select" id="filter-status">
                 <option value="">All Status</option>
                 <option value="active">Active</option>
@@ -431,19 +665,27 @@ function cms_list_corp_acc_shortcode($atts) {
                 <option value="">Sort By</option>
                 <option value="newest">Newest First</option>
                 <option value="oldest">Oldest First</option>
-                <option value="company">Company A-Z</option>
+                <option value="company_asc">Company A-Z</option>
+                <option value="company_desc">Company Z-A</option>
+            </select>
+            
+            <select class="cms-corp-filter-select" id="items-per-page" onchange="changeItemsPerPage(this.value)">
+                <option value="10" <?php selected($items_per_page, 10); ?>>10 per page</option>
+                <option value="25" <?php selected($items_per_page, 25); ?>>25 per page</option>
+                <option value="50" <?php selected($items_per_page, 50); ?>>50 per page</option>
+                <option value="100" <?php selected($items_per_page, 100); ?>>100 per page</option>
             </select>
         </div>
         <?php endif; ?>
         
-        <?php if (empty($corp_data)): ?>
+        <?php if (empty($corp_accounts)): ?>
             <div class="cms-corp-no-data">
                 <?php echo esc_html($atts['no_data_message']); ?>
             </div>
         <?php else: ?>
         
         <div class="cms-corp-table-responsive">
-            <table class="cms-corp-table">
+            <table class="cms-corp-table" id="cms-corp-table">
                 <thead>
                     <tr>
                         <th>Company</th>
@@ -451,79 +693,94 @@ function cms_list_corp_acc_shortcode($atts) {
                         <th>Email & Phone</th>
                         <th>Address</th>
                         <th>Website</th>
-                        <th>Industry</th>
+                        <?php if ($atts['show_status'] === 'yes'): ?>
                         <th>Status</th>
+                        <?php endif; ?>
+                        <?php if ($atts['show_created_date'] === 'yes'): ?>
+                        <th>Created</th>
+                        <?php endif; ?>
+                        <?php if ($atts['show_updated_date'] === 'yes'): ?>
+                        <th>Updated</th>
+                        <?php endif; ?>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($corp_data as $corp): ?>
-                    <tr id="corp-row-<?php echo esc_attr($corp['id']); ?>">
+                    <?php foreach ($paged_accounts as $corp): ?>
+                    <tr id="corp-row-<?php echo esc_attr($corp->id); ?>" data-status="<?php echo esc_attr($corp->status); ?>" data-company="<?php echo esc_attr($corp->company_name); ?>">
                         <td>
                             <div class="cms-corp-info">
                                 <div class="cms-corp-avatar">
-                                    <?php echo strtoupper(substr($corp['company_name'], 0, 1)); ?>
+                                    <?php echo strtoupper(substr($corp->company_name, 0, 1)); ?>
                                 </div>
                                 <div>
-                                    <div class="cms-corp-company"><?php echo esc_html($corp['company_name']); ?></div>
-                                    <div class="cms-corp-username">@<?php echo esc_html($corp['username']); ?></div>
+                                    <div class="cms-corp-company"><?php echo esc_html($corp->company_name); ?></div>
+                                    <div class="cms-corp-username">@<?php echo esc_html($corp->username); ?></div>
                                 </div>
                             </div>
                         </td>
                         <td>
-                            <div style="font-weight: 500;"><?php echo esc_html($corp['contact_name']); ?></div>
+                            <div style="font-weight: 500;"><?php echo esc_html($corp->name); ?></div>
                         </td>
-                        <td>
-                            <div><strong>Email:</strong> <?php echo esc_html($corp['email']); ?></div>
-                            <div style="font-size: 12px; color: #718096; margin-top: 3px;">
-                                <strong>Phone:</strong> <?php echo esc_html($corp['phone']); ?>
+                        <td class="cms-corp-email-cell">
+                            <a href="mailto:<?php echo esc_attr($corp->email); ?>" class="cms-corp-email">
+                                <?php echo esc_html($corp->email); ?>
+                            </a>
+                            <div class="cms-corp-phone">
+                                <?php echo esc_html($corp->phone_no); ?>
                             </div>
                         </td>
                         <td>
-                            <div style="max-width: 200px; white-space: normal;">
-                                <?php echo esc_html($corp['address']); ?>
+                            <div class="cms-corp-address">
+                                <?php echo esc_html($corp->address); ?>
                             </div>
                         </td>
                         <td>
-                            <?php if($corp['website']): ?>
-                            <a href="https://<?php echo esc_attr($corp['website']); ?>" target="_blank" class="cms-corp-website-link">
-                                🌐 Visit
+                            <?php if(!empty($corp->website) && $corp->website !== 'https://'): ?>
+                            <a href="<?php echo esc_url($corp->website); ?>" target="_blank" class="cms-corp-website-link">
+                                <span>🌐</span> Visit
                             </a>
                             <?php else: ?>
-                            <span style="color: #718096;">-</span>
+                            <span style="color: #718096;">—</span>
                             <?php endif; ?>
                         </td>
+                        
+                        <?php if ($atts['show_status'] === 'yes'): ?>
                         <td>
-                            <span class="cms-corp-industry-badge">
-                                <?php echo esc_html(ucfirst($corp['industry'])); ?>
-                            </span>
-                            <?php if($corp['company_size']): ?>
-                            <div style="font-size: 11px; color: #718096; margin-top: 3px;">
-                                Size: <?php echo esc_html($corp['company_size']); ?>
-                            </div>
-                            <?php endif; ?>
-                        </td>
-                        <td>
-                            <span class="cms-corp-status <?php echo esc_attr($corp['status']); ?>">
-                                <?php echo esc_html(ucfirst($corp['status'])); ?>
+                            <span class="cms-corp-status <?php echo esc_attr($corp->status); ?>">
+                                <?php echo esc_html(ucfirst($corp->status)); ?>
                             </span>
                         </td>
+                        <?php endif; ?>
+                        
+                        <?php if ($atts['show_created_date'] === 'yes'): ?>
+                        <td class="cms-corp-date">
+                            <?php echo date('M j, Y', strtotime($corp->created_at)); ?>
+                        </td>
+                        <?php endif; ?>
+                        
+                        <?php if ($atts['show_updated_date'] === 'yes' && !empty($corp->updated_at) && $corp->updated_at != '0000-00-00 00:00:00'): ?>
+                        <td class="cms-corp-date">
+                            <?php echo date('M j, Y', strtotime($corp->updated_at)); ?>
+                        </td>
+                        <?php endif; ?>
+                        
                         <td>
                             <div class="cms-corp-action-buttons">
                                 <?php if (strpos($atts['actions'], 'view') !== false): ?>
-                                <a href="<?php echo esc_url(home_url('view-corp-account/' . $corp['id'])); ?>" class="cms-corp-action-btn cms-corp-btn-view">
+                                <a href="<?php echo esc_url(home_url($atts['view_page'] . '?corp_id=' . $corp->id)); ?>" class="cms-corp-action-btn cms-corp-btn-view" title="View Details">
                                     👁️ View
                                 </a>
                                 <?php endif; ?>
                                 
                                 <?php if (strpos($atts['actions'], 'update') !== false): ?>
-                                <a href="<?php echo esc_url(home_url('edit-corp-account/' . $corp['id'])); ?>" class="cms-corp-action-btn cms-corp-btn-edit">
+                                <a href="<?php echo esc_url(home_url($atts['edit_page'] . '?corp_id=' . $corp->id)); ?>" class="cms-corp-action-btn cms-corp-btn-edit" title="Edit Account">
                                     ✏️ Edit
                                 </a>
                                 <?php endif; ?>
                                 
                                 <?php if (strpos($atts['actions'], 'delete') !== false): ?>
-                                <button class="cms-corp-action-btn cms-corp-btn-delete" onclick="cmsConfirmDeleteCorp(<?php echo esc_js($corp['id']); ?>)">
+                                <button class="cms-corp-action-btn cms-corp-btn-delete" onclick="cmsConfirmDeleteCorp(<?php echo esc_js($corp->id); ?>, '<?php echo esc_js($corp->company_name); ?>')" title="Delete Account">
                                     🗑️ Delete
                                 </button>
                                 <?php endif; ?>
@@ -535,121 +792,257 @@ function cms_list_corp_acc_shortcode($atts) {
             </table>
         </div>
         
+        <?php if ($total_pages > 1): ?>
         <div class="cms-corp-pagination">
-            <a href="#" class="cms-corp-page-link">« Previous</a>
-            <a href="#" class="cms-corp-page-link active">1</a>
-            <a href="#" class="cms-corp-page-link">2</a>
-            <a href="#" class="cms-corp-page-link">3</a>
-            <a href="#" class="cms-corp-page-link">4</a>
-            <a href="#" class="cms-corp-page-link">Next »</a>
+            <?php
+            // Previous page link
+            if ($current_page > 1):
+            ?>
+            <a href="<?php echo esc_url(add_query_arg('corp_page', $current_page - 1)); ?>" class="cms-corp-page-link">« Previous</a>
+            <?php else: ?>
+            <span class="cms-corp-page-link disabled">« Previous</span>
+            <?php endif; ?>
+            
+            <?php
+            // Page numbers
+            $start_page = max(1, $current_page - 2);
+            $end_page = min($total_pages, $current_page + 2);
+            
+            for ($i = $start_page; $i <= $end_page; $i++):
+            ?>
+            <a href="<?php echo esc_url(add_query_arg('corp_page', $i)); ?>" class="cms-corp-page-link <?php echo $i == $current_page ? 'active' : ''; ?>"><?php echo $i; ?></a>
+            <?php endfor; ?>
+            
+            <?php
+            // Next page link
+            if ($current_page < $total_pages):
+            ?>
+            <a href="<?php echo esc_url(add_query_arg('corp_page', $current_page + 1)); ?>" class="cms-corp-page-link">Next »</a>
+            <?php else: ?>
+            <span class="cms-corp-page-link disabled">Next »</span>
+            <?php endif; ?>
         </div>
+        <?php endif; ?>
         
         <?php endif; ?>
     </div>
     
     <!-- Delete Confirmation Modal -->
-    <div id="cms-corp-delete-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
-        <div style="background:white; padding:30px; border-radius:16px; max-width:500px; width:90%; border-top:4px solid #d63031;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; padding-bottom:15px; border-bottom:2px solid #f0f0f0;">
-                <h3 style="margin:0; color:#d63031;">Confirm Delete</h3>
-                <button style="background:none; border:none; font-size:24px; cursor:pointer; color:#718096;" onclick="document.getElementById('cms-corp-delete-modal').style.display='none'">×</button>
+    <div id="cms-corp-delete-modal" class="cms-corp-modal">
+        <div class="cms-corp-modal-content">
+            <div class="cms-corp-modal-header">
+                <h3>
+                    <span>🗑️</span> Delete Corporate Account
+                </h3>
+                <button class="cms-corp-modal-close" onclick="closeDeleteModal()">×</button>
             </div>
-            <div style="padding:20px 0;">
-                <p style="font-size:16px; margin-bottom:20px;">Are you sure you want to delete this corporate account?</p>
-                <p style="color:#718096; font-size:14px;">This action cannot be undone. All associated data will be permanently removed.</p>
+            <div class="cms-corp-modal-body">
+                <p style="font-size: 16px; margin-bottom: 15px;">Are you sure you want to delete <strong id="delete-company-name"></strong>?</p>
+                <p style="color: #718096; font-size: 14px; background: #fff3cd; padding: 12px; border-radius: 8px;">
+                    <strong>Warning:</strong> This action cannot be undone. All associated data will be permanently removed from the database.
+                </p>
             </div>
-            <div style="display:flex; justify-content:flex-end;">
-                <button style="background:#e2e8f0; color:#4a5568; padding:12px 24px; border:none; border-radius:8px; cursor:pointer; margin-right:10px;" onclick="document.getElementById('cms-corp-delete-modal').style.display='none'">Cancel</button>
-                <button id="cms-corp-confirm-delete-btn" style="background:#d63031; color:white; padding:12px 24px; border:none; border-radius:8px; cursor:pointer; font-weight:600;">Delete Account</button>
+            <div class="cms-corp-modal-footer">
+                <button class="cms-corp-modal-btn cms-corp-modal-btn-cancel" onclick="closeDeleteModal()">Cancel</button>
+                <button id="cms-corp-confirm-delete-btn" class="cms-corp-modal-btn cms-corp-modal-btn-delete">Delete Account</button>
             </div>
         </div>
     </div>
     
     <script>
-    function cmsConfirmDeleteCorp(corpId) {
-        var modal = document.getElementById('cms-corp-delete-modal');
-        var confirmBtn = document.getElementById('cms-corp-confirm-delete-btn');
-        
-        confirmBtn.onclick = function() {
-            cmsDeleteCorp(corpId);
-        };
-        
-        modal.style.display = 'flex';
+    var currentDeleteId = null;
+    
+    function cmsConfirmDeleteCorp(corpId, companyName) {
+        currentDeleteId = corpId;
+        document.getElementById('delete-company-name').textContent = companyName;
+        document.getElementById('cms-corp-delete-modal').style.display = 'flex';
     }
     
-    function cmsDeleteCorp(corpId) {
-        var row = document.getElementById('corp-row-' + corpId);
+    function closeDeleteModal() {
+        document.getElementById('cms-corp-delete-modal').style.display = 'none';
+        currentDeleteId = null;
+    }
+    
+    function cmsDeleteCorp() {
+        if (!currentDeleteId) return;
+        
+        var deleteBtn = document.getElementById('cms-corp-confirm-delete-btn');
+        deleteBtn.disabled = true;
+        deleteBtn.textContent = 'Deleting...';
+        
+        // Show loading state on row
+        var row = document.getElementById('corp-row-' + currentDeleteId);
         if (row) {
             row.style.opacity = '0.5';
-            setTimeout(function() {
-                row.remove();
-                document.getElementById('cms-corp-delete-modal').style.display = 'none';
-                alert('Corporate account deleted successfully!');
-                
-                if (document.querySelectorAll('.cms-corp-table tbody tr').length === 0) {
-                    location.reload();
-                }
-            }, 500);
         }
+        
+        // AJAX delete request
+        jQuery.ajax({
+            url: '<?php echo admin_url('admin-ajax.php'); ?>',
+            type: 'POST',
+            data: {
+                action: 'cms_delete_corporate_account',
+                corp_id: currentDeleteId,
+                nonce: '<?php echo wp_create_nonce('cms_delete_corp_nonce'); ?>'
+            },
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    // Remove row with animation
+                    if (row) {
+                        row.style.transition = 'all 0.3s ease';
+                        row.style.opacity = '0';
+                        row.style.transform = 'translateX(20px)';
+                        setTimeout(function() {
+                            row.remove();
+                            
+                            // Check if table is empty
+                            var tbody = document.querySelector('#cms-corp-table tbody');
+                            if (tbody && tbody.children.length === 0) {
+                                location.reload(); // Reload to show no data message
+                            }
+                        }, 300);
+                    }
+                    
+                    // Show success message
+                    alert('Corporate account deleted successfully!');
+                } else {
+                    alert('Error: ' + response.data.message);
+                    if (row) {
+                        row.style.opacity = '1';
+                    }
+                }
+                
+                closeDeleteModal();
+                deleteBtn.disabled = false;
+                deleteBtn.textContent = 'Delete Account';
+            },
+            error: function(xhr, status, error) {
+                console.error('Delete error:', error);
+                alert('An error occurred while deleting. Please try again.');
+                if (row) {
+                    row.style.opacity = '1';
+                }
+                closeDeleteModal();
+                deleteBtn.disabled = false;
+                deleteBtn.textContent = 'Delete Account';
+            }
+        });
     }
     
-    document.addEventListener('DOMContentLoaded', function() {
-        var searchInput = document.getElementById('cms-corp-search');
-        if (searchInput) {
-            searchInput.addEventListener('keyup', function() {
-                var searchTerm = this.value.toLowerCase();
-                var rows = document.querySelectorAll('.cms-corp-table tbody tr');
-                
-                rows.forEach(function(row) {
-                    var text = row.textContent.toLowerCase();
-                    row.style.display = text.includes(searchTerm) ? '' : 'none';
-                });
-            });
+    // Attach delete function to confirm button
+    document.getElementById('cms-corp-confirm-delete-btn').addEventListener('click', cmsDeleteCorp);
+    
+    // Close modal when clicking outside
+    window.onclick = function(event) {
+        var modal = document.getElementById('cms-corp-delete-modal');
+        if (event.target === modal) {
+            closeDeleteModal();
         }
+    };
+    
+    // Search functionality
+    jQuery(document).ready(function($) {
+        // Real-time search
+        $('#cms-corp-search').on('keyup', function() {
+            var searchTerm = $(this).val().toLowerCase();
+            filterTable();
+        });
         
-        // Industry filter
-        var industryFilter = document.getElementById('filter-industry');
-        var sizeFilter = document.getElementById('filter-size');
-        var statusFilter = document.getElementById('filter-status');
+        $('#cms-corp-search-btn').on('click', function() {
+            filterTable();
+        });
         
-        function applyCorpFilters() {
-            var industryValue = industryFilter ? industryFilter.value.toLowerCase() : '';
-            var sizeValue = sizeFilter ? sizeFilter.value.toLowerCase() : '';
-            var statusValue = statusFilter ? statusFilter.value.toLowerCase() : '';
-            var rows = document.querySelectorAll('.cms-corp-table tbody tr');
+        // Status filter
+        $('#filter-status').on('change', function() {
+            filterTable();
+        });
+        
+        // Sort functionality
+        $('#sort-by').on('change', function() {
+            var sortBy = $(this).val();
+            var rows = $('#cms-corp-table tbody tr').get();
             
-            rows.forEach(function(row) {
-                var showRow = true;
+            rows.sort(function(a, b) {
+                var aVal, bVal;
                 
-                if (industryValue) {
-                    var industryCell = row.querySelector('.cms-corp-industry-badge');
-                    if (industryCell && industryCell.textContent.toLowerCase() !== industryValue) {
-                        showRow = false;
-                    }
+                switch(sortBy) {
+                    case 'newest':
+                        // Assuming ID increments with time
+                        aVal = parseInt($(a).attr('id').replace('corp-row-', ''));
+                        bVal = parseInt($(b).attr('id').replace('corp-row-', ''));
+                        return bVal - aVal;
+                    
+                    case 'oldest':
+                        aVal = parseInt($(a).attr('id').replace('corp-row-', ''));
+                        bVal = parseInt($(b).attr('id').replace('corp-row-', ''));
+                        return aVal - bVal;
+                    
+                    case 'company_asc':
+                        aVal = $(a).data('company') || '';
+                        bVal = $(b).data('company') || '';
+                        return aVal.localeCompare(bVal);
+                    
+                    case 'company_desc':
+                        aVal = $(a).data('company') || '';
+                        bVal = $(b).data('company') || '';
+                        return bVal.localeCompare(aVal);
+                    
+                    default:
+                        return 0;
                 }
-                
-                if (sizeValue) {
-                    var sizeText = row.querySelector('td:nth-child(6)')?.textContent.toLowerCase() || '';
-                    if (!sizeText.includes(sizeValue)) {
-                        showRow = false;
-                    }
-                }
-                
-                if (statusValue) {
-                    var statusCell = row.querySelector('.cms-corp-status');
-                    if (statusCell && !statusCell.classList.contains(statusValue)) {
-                        showRow = false;
-                    }
-                }
-                
-                row.style.display = showRow ? '' : 'none';
             });
-        }
+            
+            $.each(rows, function(index, row) {
+                $('#cms-corp-table tbody').append(row);
+            });
+        });
         
-        if (industryFilter) industryFilter.addEventListener('change', applyCorpFilters);
-        if (sizeFilter) sizeFilter.addEventListener('change', applyCorpFilters);
-        if (statusFilter) statusFilter.addEventListener('change', applyCorpFilters);
+        function filterTable() {
+            var searchTerm = $('#cms-corp-search').val().toLowerCase();
+            var statusFilter = $('#filter-status').val().toLowerCase();
+            
+            $('#cms-corp-table tbody tr').each(function() {
+                var showRow = true;
+                var row = $(this);
+                
+                // Search filter
+                if (searchTerm) {
+                    var rowText = row.text().toLowerCase();
+                    if (!rowText.includes(searchTerm)) {
+                        showRow = false;
+                    }
+                }
+                
+                // Status filter
+                if (statusFilter && showRow) {
+                    var rowStatus = row.data('status');
+                    if (rowStatus !== statusFilter) {
+                        showRow = false;
+                    }
+                }
+                
+                row.toggle(showRow);
+            });
+            
+            // Show/hide no results message
+            var visibleRows = $('#cms-corp-table tbody tr:visible').length;
+            if (visibleRows === 0) {
+                if ($('#no-results-message').length === 0) {
+                    $('#cms-corp-table tbody').append('<tr id="no-results-message"><td colspan="8" style="text-align: center; padding: 40px; color: #718096;">No matching records found</td></tr>');
+                }
+            } else {
+                $('#no-results-message').remove();
+            }
+        }
     });
+    
+    function changeItemsPerPage(value) {
+        var url = new URL(window.location.href);
+        url.searchParams.set('items_per_page', value);
+        url.searchParams.set('corp_page', 1); // Reset to first page
+        window.location.href = url.toString();
+    }
     </script>
     
     <?php
@@ -660,101 +1053,100 @@ add_shortcode('cms_list_corp_acc', 'cms_list_corp_acc_shortcode');
 add_shortcode(CMS_CORP_ACC_LIST_SHORTCODE, 'cms_list_corp_acc_shortcode');
 
 /**
- * Mock Corporate Account Data
+ * Get all corporate accounts from database
  */
-function get_cms_mock_corp_data() {
-    return array(
-        array(
-            'id' => 301,
-            'username' => 'techcorp',
-            'company_name' => 'TechCorp Solutions',
-            'contact_name' => 'John Anderson',
-            'email' => 'contact@techcorp.com',
-            'phone' => '+1 (415) 555-0123',
-            'address' => '123 Silicon Valley Blvd, San Francisco, CA 94105, USA',
-            'website' => 'www.techcorp.com',
-            'industry' => 'technology',
-            'company_size' => '51-200',
-            'status' => 'active'
-        ),
-        array(
-            'id' => 302,
-            'username' => 'globalfinance',
-            'company_name' => 'Global Finance Ltd',
-            'contact_name' => 'Sarah Williams',
-            'email' => 'info@globalfinance.co.uk',
-            'phone' => '+44 20 7123 4567',
-            'address' => '45 London Wall, London EC2M 5TE, United Kingdom',
-            'website' => 'www.globalfinance.co.uk',
-            'industry' => 'finance',
-            'company_size' => '201-500',
-            'status' => 'active'
-        ),
-        array(
-            'id' => 303,
-            'username' => 'healthcare_plus',
-            'company_name' => 'Healthcare Plus',
-            'contact_name' => 'Dr. Michael Chen',
-            'email' => 'admin@healthcareplus.com',
-            'phone' => '+1 (212) 555-7890',
-            'address' => '555 Medical Center Dr, New York, NY 10001, USA',
-            'website' => 'www.healthcareplus.com',
-            'industry' => 'healthcare',
-            'company_size' => '501-1000',
-            'status' => 'active'
-        ),
-        array(
-            'id' => 304,
-            'username' => 'eduworld',
-            'company_name' => 'EduWorld International',
-            'contact_name' => 'Prof. David Miller',
-            'email' => 'contact@eduworld.edu',
-            'phone' => '+1 (617) 555-4321',
-            'address' => '100 Education Parkway, Boston, MA 02108, USA',
-            'website' => 'www.eduworld.edu',
-            'industry' => 'education',
-            'company_size' => '201-500',
-            'status' => 'active'
-        ),
-        array(
-            'id' => 305,
-            'username' => 'innovate_tech',
-            'company_name' => 'InnovateTech Solutions',
-            'contact_name' => 'Lisa Thompson',
-            'email' => 'hello@innovatetech.io',
-            'phone' => '+91 80 4123 4567',
-            'address' => 'Embassy Tech Village, Outer Ring Road, Bangalore 560103, India',
-            'website' => 'www.innovatetech.io',
-            'industry' => 'technology',
-            'company_size' => '11-50',
-            'status' => 'inactive'
-        ),
-        array(
-            'id' => 306,
-            'username' => 'green_retail',
-            'company_name' => 'Green Retail Chain',
-            'contact_name' => 'Emma Green',
-            'email' => 'info@greenretail.com.au',
-            'phone' => '+61 2 9876 5432',
-            'address' => '456 Oxford Street, Sydney NSW 2000, Australia',
-            'website' => 'www.greenretail.com.au',
-            'industry' => 'retail',
-            'company_size' => '1000+',
-            'status' => 'active'
-        ),
-        array(
-            'id' => 307,
-            'username' => 'prestige_auto',
-            'company_name' => 'Prestige Auto Group',
-            'contact_name' => 'Robert Brown',
-            'email' => 'sales@prestigeauto.ae',
-            'phone' => '+971 4 123 4567',
-            'address' => 'Sheikh Zayed Road, Dubai, UAE',
-            'website' => 'www.prestigeauto.ae',
-            'industry' => 'retail',
-            'company_size' => '51-200',
-            'status' => 'suspended'
-        )
+function cms_get_all_corporate_accounts_from_db() {
+    global $wpdb;
+    $table = $wpdb->prefix . 'cms_corp_acc';
+    
+    $results = $wpdb->get_results(
+        "SELECT * FROM $table ORDER BY created_at DESC"
     );
+    
+    return $results ? $results : array();
 }
-?>
+
+/**
+ * AJAX handler for deleting corporate account
+ */
+function cms_ajax_delete_corporate_account() {
+    // Verify nonce
+    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'cms_delete_corp_nonce')) {
+        wp_send_json_error(array('message' => 'Security check failed.'));
+    }
+    
+    if (!isset($_POST['corp_id'])) {
+        wp_send_json_error(array('message' => 'No account ID provided.'));
+    }
+    
+    $corp_id = intval($_POST['corp_id']);
+    
+    global $wpdb;
+    $table_corp_acc = $wpdb->prefix . 'cms_corp_acc';
+    $table_users = $wpdb->prefix . 'cms_users';
+    
+    // Start transaction
+    $wpdb->query('START TRANSACTION');
+    
+    try {
+        // Get username first for logging
+        $corp = $wpdb->get_row($wpdb->prepare(
+            "SELECT username FROM $table_corp_acc WHERE id = %d",
+            $corp_id
+        ));
+        
+        if (!$corp) {
+            throw new Exception('Corporate account not found.');
+        }
+        
+        $username = $corp->username;
+        
+        // Delete from corp_acc table
+        $result1 = $wpdb->delete(
+            $table_corp_acc,
+            array('id' => $corp_id),
+            array('%d')
+        );
+        
+        if ($result1 === false) {
+            throw new Exception('Failed to delete from corporate accounts table.');
+        }
+        
+        // Delete from users table
+        $result2 = $wpdb->delete(
+            $table_users,
+            array('username' => $username),
+            array('%s')
+        );
+        
+        if ($result2 === false) {
+            throw new Exception('Failed to delete from users table.');
+        }
+        
+        // Commit transaction
+        $wpdb->query('COMMIT');
+        
+        // Log the deletion
+        error_log(sprintf(
+            'CMS: Corporate account deleted - ID: %d, Username: %s',
+            $corp_id,
+            $username
+        ));
+        
+        wp_send_json_success(array(
+            'message' => 'Account deleted successfully.',
+            'corp_id' => $corp_id
+        ));
+        
+    } catch (Exception $e) {
+        // Rollback transaction on error
+        $wpdb->query('ROLLBACK');
+        
+        error_log('CMS Delete Error: ' . $e->getMessage());
+        
+        wp_send_json_error(array(
+            'message' => $e->getMessage()
+        ));
+    }
+}
+add_action('wp_ajax_cms_delete_corporate_account', 'cms_ajax_delete_corporate_account');

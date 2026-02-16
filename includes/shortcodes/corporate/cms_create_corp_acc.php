@@ -206,26 +206,14 @@ function cms_corp_acc_form_shortcode($atts) {
         box-shadow: 0 0 0 4px rgba(108,92,231,0.05);
     }
     
+    /* Updated Website Input - No prefix, handles full URLs */
     .cms-corp-website-input {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-    
-    .cms-corp-website-prefix {
-        padding: 14px 18px;
-        background: #f5f0ff;
-        border: 2px solid #d9d0ff;
-        border-right: none;
-        border-radius: 12px 0 0 12px;
-        color: var(--corp-primary-dark);
-        font-weight: 500;
-        white-space: nowrap;
+        width: 100%;
     }
     
     .cms-corp-website-field {
-        flex: 1;
-        border-radius: 0 12px 12px 0;
+        width: 100%;
+        border-radius: 12px;
     }
     
     .cms-corp-submit-section {
@@ -346,6 +334,44 @@ function cms_corp_acc_form_shortcode($atts) {
         margin-top: 5px;
     }
     
+    .password-input-wrapper {
+        position: relative;
+    }
+    
+    .password-toggle {
+        position: absolute;
+        right: 15px;
+        top: 50%;
+        transform: translateY(-50%);
+        cursor: pointer;
+        color: #718096;
+        font-size: 18px;
+    }
+    
+    .password-strength-meter {
+        margin-top: 8px;
+        height: 4px;
+        background: #e2e8f0;
+        border-radius: 2px;
+        overflow: hidden;
+    }
+    
+    .password-strength-bar {
+        height: 100%;
+        width: 0;
+        transition: width 0.3s ease;
+    }
+    
+    .password-strength-bar.weak { background: #d63031; width: 33.33%; }
+    .password-strength-bar.medium { background: #fdcb6e; width: 66.66%; }
+    .password-strength-bar.strong { background: #00b894; width: 100%; }
+    
+    .password-hint {
+        font-size: 12px;
+        color: #718096;
+        margin-top: 5px;
+    }
+    
     @media (max-width: 768px) {
         .cms-corp-form-container {
             padding: 25px;
@@ -370,21 +396,6 @@ function cms_corp_acc_form_shortcode($atts) {
         
         .cms-corp-country-code {
             width: 100%;
-        }
-        
-        .cms-corp-website-input {
-            flex-direction: column;
-            align-items: stretch;
-        }
-        
-        .cms-corp-website-prefix {
-            border-radius: 12px;
-            border-right: 2px solid #d9d0ff;
-            text-align: center;
-        }
-        
-        .cms-corp-website-field {
-            border-radius: 12px;
         }
     }
     </style>
@@ -442,6 +453,29 @@ function cms_corp_acc_form_shortcode($atts) {
                             title="Username must be 3-30 characters, can contain letters, numbers and underscores"
                         >
                         <div class="cms-corp-field-hint">Used for login: 3-30 characters, letters, numbers, underscore</div>
+                    </div>
+                    
+                    <!-- Password -->
+                    <div class="cms-corp-group">
+                        <label for="corp-password">
+                            Password <?php if($atts['required_field_mark']) echo '<span class="cms-corp-required">' . esc_html($atts['required_field_mark']) . '</span>'; ?>
+                        </label>
+                        <div class="password-input-wrapper">
+                            <input 
+                                type="password" 
+                                id="corp-password" 
+                                name="corp_password" 
+                                class="cms-corp-control" 
+                                placeholder="Enter password"
+                                required
+                                minlength="8"
+                            >
+                            <span class="password-toggle" onclick="togglePasswordVisibility('corp-password')">👁️</span>
+                        </div>
+                        <div class="password-strength-meter">
+                            <div class="password-strength-bar" id="password-strength"></div>
+                        </div>
+                        <div class="password-hint">Minimum 8 characters with at least one number and one letter</div>
                     </div>
                     
                     <!-- Company Name -->
@@ -547,65 +581,23 @@ function cms_corp_acc_form_shortcode($atts) {
                         ></textarea>
                     </div>
                     
-                    <!-- Website -->
+                    <!-- Website - UPDATED to handle full URLs like https://ashfordpremiertaxi.co.uk/ -->
                     <div class="cms-corp-group full-width">
                         <label for="corp-website">
                             Website URL <?php if($atts['required_field_mark']) echo '<span class="cms-corp-required">' . esc_html($atts['required_field_mark']) . '</span>'; ?>
                         </label>
                         <div class="cms-corp-website-input">
-                            <span class="cms-corp-website-prefix">https://</span>
                             <input 
                                 type="url" 
                                 id="corp-website" 
                                 name="corp_website" 
                                 class="cms-corp-control cms-corp-website-field" 
-                                placeholder="www.example.com"
+                                placeholder="https://example.com or https://www.example.co.uk/"
+                                value="https://"
                                 required
-                                pattern="^(www\.)?[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(\.[a-zA-Z]{2,})?$"
-                                title="Please enter a valid domain name (e.g., www.example.com or example.com)"
                             >
                         </div>
-                        <div class="cms-corp-field-hint">Enter without https:// (e.g., www.company.com or company.com)</div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Additional Information Section -->
-            <div class="cms-corp-section">
-                <h3 class="cms-corp-section-title">📋 Additional Information</h3>
-                
-                <div class="cms-corp-grid">
-                    <div class="cms-corp-group">
-                        <label for="corp-industry">Industry Type</label>
-                        <select id="corp-industry" name="corp_industry" class="cms-corp-control">
-                            <option value="">Select Industry</option>
-                            <option value="technology">Technology / IT</option>
-                            <option value="finance">Finance / Banking</option>
-                            <option value="healthcare">Healthcare</option>
-                            <option value="education">Education</option>
-                            <option value="manufacturing">Manufacturing</option>
-                            <option value="retail">Retail / E-commerce</option>
-                            <option value="realestate">Real Estate</option>
-                            <option value="construction">Construction</option>
-                            <option value="transportation">Transportation / Logistics</option>
-                            <option value="hospitality">Hospitality / Tourism</option>
-                            <option value="media">Media / Entertainment</option>
-                            <option value="consulting">Consulting</option>
-                            <option value="other">Other</option>
-                        </select>
-                    </div>
-                    
-                    <div class="cms-corp-group">
-                        <label for="corp-size">Company Size</label>
-                        <select id="corp-size" name="corp_size" class="cms-corp-control">
-                            <option value="">Select Size</option>
-                            <option value="1-10">1-10 employees</option>
-                            <option value="11-50">11-50 employees</option>
-                            <option value="51-200">51-200 employees</option>
-                            <option value="201-500">201-500 employees</option>
-                            <option value="501-1000">501-1000 employees</option>
-                            <option value="1000+">1000+ employees</option>
-                        </select>
+                        <div class="cms-corp-field-hint">Enter full website URL including https:// (e.g., https://ashfordpremiertaxi.co.uk/)</div>
                     </div>
                 </div>
             </div>
@@ -625,13 +617,35 @@ function cms_corp_acc_form_shortcode($atts) {
     
     <script>
     jQuery(document).ready(function($) {
+        // Password strength meter
+        $('#corp-password').on('keyup', function() {
+            var password = $(this).val();
+            var strengthBar = $('#password-strength');
+            
+            // Check password strength
+            var hasLetter = /[a-zA-Z]/.test(password);
+            var hasNumber = /[0-9]/.test(password);
+            var hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+            var isLongEnough = password.length >= 8;
+            
+            if (password.length === 0) {
+                strengthBar.removeClass('weak medium strong').css('width', '0');
+            } else if (isLongEnough && hasLetter && hasNumber && hasSpecial) {
+                strengthBar.removeClass('weak medium').addClass('strong');
+            } else if (isLongEnough && ((hasLetter && hasNumber) || (hasLetter && hasSpecial) || (hasNumber && hasSpecial))) {
+                strengthBar.removeClass('weak strong').addClass('medium');
+            } else {
+                strengthBar.removeClass('medium strong').addClass('weak');
+            }
+        });
+        
         // Form validation
         $('.cms-corp-form').on('submit', function(e) {
             var isValid = true;
             
             // Check all required fields
             $(this).find('[required]').each(function() {
-                if (!$(this).val()) {
+                if (!$(this).val() || $(this).val() === 'https://') {
                     $(this).addClass('error');
                     isValid = false;
                 } else {
@@ -655,12 +669,25 @@ function cms_corp_acc_form_shortcode($atts) {
                 isValid = false;
             }
             
-            // Validate website format
+            // Validate password
+            var password = $('#corp-password');
+            if (password.val().length < 8) {
+                password.addClass('error');
+                isValid = false;
+            }
+            
+            // UPDATED: Validate website URL - handles full URLs with protocol
             var website = $('#corp-website');
-            var websitePattern = /^(www\.)?[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(\.[a-zA-Z]{2,})?$/;
-            if (website.val() && !websitePattern.test(website.val())) {
+            var websitePattern = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/i;
+            
+            if (website.val() && website.val() !== 'https://') {
+                if (!websitePattern.test(website.val())) {
+                    website.addClass('error');
+                    alert('Please enter a valid website URL (e.g., https://ashfordpremiertaxi.co.uk/)');
+                    isValid = false;
+                }
+            } else {
                 website.addClass('error');
-                alert('Please enter a valid website domain (e.g., www.example.com)');
                 isValid = false;
             }
             
@@ -716,14 +743,73 @@ function cms_corp_acc_form_shortcode($atts) {
             }
         });
         
-        // Auto-format website input (remove http:// or https:// if user pastes full URL)
+        // UPDATED: Ensure website has protocol
         $('#corp-website').on('blur', function() {
-            var url = $(this).val();
-            url = url.replace(/^https?:\/\//i, '');
-            url = url.replace(/^www\./i, '');
+            var url = $(this).val().trim();
+            
+            // If empty or just protocol, reset to https://
+            if (!url || url === 'http://' || url === 'https://') {
+                $(this).val('https://');
+                return;
+            }
+            
+            // Add https:// if no protocol specified
+            if (!url.match(/^[a-zA-Z]+:\/\//)) {
+                url = 'https://' + url;
+            }
+            
+            // Ensure it ends with / if it's a domain
+            if (url.match(/^https?:\/\/[^\/]+$/) && !url.endsWith('/')) {
+                url = url + '/';
+            }
+            
             $(this).val(url);
         });
+        
+        // Focus handling for website field
+        $('#corp-website').on('focus', function() {
+            if ($(this).val() === 'https://') {
+                $(this).select();
+            }
+        });
+        
+        // Real-time username availability check
+        var usernameTimeout;
+        $('#corp-username').on('keyup', function() {
+            clearTimeout(usernameTimeout);
+            var username = $(this).val();
+            
+            if (username.length >= 3) {
+                usernameTimeout = setTimeout(function() {
+                    $.ajax({
+                        url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                        type: 'POST',
+                        data: {
+                            action: 'cms_check_username',
+                            username: username
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                $('#corp-username').removeClass('error').addClass('success');
+                            } else {
+                                $('#corp-username').removeClass('success').addClass('error');
+                            }
+                        }
+                    });
+                }, 500);
+            }
+        });
     });
+    
+    // Toggle password visibility
+    function togglePasswordVisibility(fieldId) {
+        var field = document.getElementById(fieldId);
+        if (field.type === 'password') {
+            field.type = 'text';
+        } else {
+            field.type = 'password';
+        }
+    }
     </script>
     
     <?php
@@ -734,7 +820,7 @@ add_shortcode('cms_corp_acc_form', 'cms_corp_acc_form_shortcode');
 add_shortcode(CMS_CORP_ACC_CREATE_SHORTCODE, 'cms_corp_acc_form_shortcode');
 
 /**
- * Handle Corporate Account Form Submission
+ * Handle Corporate Account Form Submission with Database Integration
  */
 function cms_handle_corp_acc_submission() {
     if (isset($_POST['corp_submit'])) {
@@ -745,27 +831,198 @@ function cms_handle_corp_acc_submission() {
             exit;
         }
         
-        // Collect all form data
-        $corp_data = array(
-            'username' => sanitize_user($_POST['corp_username']),
-            'company_name' => sanitize_text_field($_POST['corp_company']),
-            'contact_name' => sanitize_text_field($_POST['corp_name']),
-            'email' => sanitize_email($_POST['corp_email']),
-            'country_code' => sanitize_text_field($_POST['corp_country_code']),
-            'phone' => sanitize_text_field($_POST['corp_phone']),
-            'address' => sanitize_textarea_field($_POST['corp_address']),
-            'website' => sanitize_text_field(strtolower($_POST['corp_website'])),
-            'industry' => isset($_POST['corp_industry']) ? sanitize_text_field($_POST['corp_industry']) : '',
-            'company_size' => isset($_POST['corp_size']) ? sanitize_text_field($_POST['corp_size']) : '',
-            'submitted_at' => current_time('mysql'),
-            'status' => 'active'
-        );
+        global $wpdb;
         
-        // For now, just redirect with success
-        wp_redirect(add_query_arg('corp_reg', 'success', wp_get_referer()));
-        exit;
+        // Get table names
+        $table_users = $wpdb->prefix . 'cms_users';
+        $table_corp_acc = $wpdb->prefix . 'cms_corp_acc';
+        
+        // Collect and sanitize all form data
+        $username = sanitize_user($_POST['corp_username']);
+        $password = $_POST['corp_password']; // Will be hashed
+        $company_name = sanitize_text_field($_POST['corp_company']);
+        $contact_name = sanitize_text_field($_POST['corp_name']);
+        $email = sanitize_email($_POST['corp_email']);
+        $country_code = sanitize_text_field($_POST['corp_country_code']);
+        $phone = sanitize_text_field($_POST['corp_phone']);
+        $full_phone = $country_code . ' ' . $phone;
+        $address = sanitize_textarea_field($_POST['corp_address']);
+        
+        // UPDATED: Better website sanitization - preserves full URL including protocol
+        $website = esc_url_raw(trim($_POST['corp_website']));
+        
+        // Ensure website has protocol
+        if (!empty($website) && $website !== 'https://') {
+            if (!preg_match('#^https?://#', $website)) {
+                $website = 'https://' . $website;
+            }
+        }
+        
+        // Validate required fields
+        if (empty($username) || empty($password) || empty($company_name) || empty($contact_name) || 
+            empty($email) || empty($phone) || empty($address) || empty($website) || $website === 'https://') {
+            wp_redirect(add_query_arg('corp_reg', 'validation', wp_get_referer()));
+            exit;
+        }
+        
+        // Check if username already exists in users table
+        $username_exists = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $table_users WHERE username = %s",
+            $username
+        ));
+        
+        if ($username_exists > 0) {
+            wp_redirect(add_query_arg('corp_reg', 'duplicate', wp_get_referer()));
+            exit;
+        }
+        
+        // Check if email already exists in corp_acc table
+        $email_exists = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $table_corp_acc WHERE email = %s",
+            $email
+        ));
+        
+        if ($email_exists > 0) {
+            wp_redirect(add_query_arg('corp_reg', 'duplicate', wp_get_referer()));
+            exit;
+        }
+        
+        // Start transaction
+        $wpdb->query('START TRANSACTION');
+        
+        try {
+            // 1. Insert into users table
+            $user_result = $wpdb->insert(
+                $table_users,
+                array(
+                    'username' => $username,
+                    'password' => wp_hash_password($password),
+                    'role' => 'corp_account',
+                    'status' => 'active',
+                    'created_at' => current_time('mysql')
+                ),
+                array('%s', '%s', '%s', '%s', '%s')
+            );
+            
+            if (!$user_result) {
+                throw new Exception('Failed to create user account');
+            }
+            
+            // 2. Insert into corp_acc table
+            $corp_result = $wpdb->insert(
+                $table_corp_acc,
+                array(
+                    'username' => $username,
+                    'company_name' => $company_name,
+                    'name' => $contact_name,
+                    'email' => $email,
+                    'phone_no' => $full_phone,
+                    'address' => $address,
+                    'website' => $website,
+                    'status' => 'active',
+                    'created_at' => current_time('mysql')
+                ),
+                array('%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s')
+            );
+            
+            if (!$corp_result) {
+                throw new Exception('Failed to create corporate account');
+            }
+            
+            // Log the registration
+            error_log(sprintf(
+                'CMS: New corporate account registered - Username: %s, Company: %s, Email: %s, Website: %s',
+                $username,
+                $company_name,
+                $email,
+                $website
+            ));
+            
+            // Commit transaction
+            $wpdb->query('COMMIT');
+            
+            // Redirect with success
+            wp_redirect(add_query_arg('corp_reg', 'success', wp_get_referer()));
+            exit;
+            
+        } catch (Exception $e) {
+            // Rollback transaction on error
+            $wpdb->query('ROLLBACK');
+            
+            // Log error
+            error_log('CMS Corporate Account Registration Error: ' . $e->getMessage());
+            
+            // Redirect with error
+            wp_redirect(add_query_arg('corp_reg', 'error', wp_get_referer()));
+            exit;
+        }
     }
 }
 add_action('init', 'cms_handle_corp_acc_submission');
 
-?>
+/**
+ * AJAX handler to check username availability
+ */
+
+function cms_get_corporate_account($username) {
+    global $wpdb;
+    $table = $wpdb->prefix . 'cms_corp_acc';
+    
+    return $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $table WHERE username = %s",
+        $username
+    ));
+}
+
+/**
+ * Get all corporate accounts
+ */
+function cms_get_all_corporate_accounts($status = 'active') {
+    global $wpdb;
+    $table = $wpdb->prefix . 'cms_corp_acc';
+    
+    if ($status) {
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM $table WHERE status = %s ORDER BY company_name ASC",
+            $status
+        ));
+    } else {
+        return $wpdb->get_results("SELECT * FROM $table ORDER BY company_name ASC");
+    }
+}
+
+/**
+ * Update corporate account status
+ */
+function cms_update_corporate_status($username, $status) {
+    global $wpdb;
+    $table = $wpdb->prefix . 'cms_corp_acc';
+    
+    return $wpdb->update(
+        $table,
+        array('status' => $status),
+        array('username' => $username),
+        array('%s'),
+        array('%s')
+    );
+}
+
+/**
+ * Delete corporate account (soft delete by status or hard delete)
+ */
+function cms_delete_corporate_account($username, $hard_delete = false) {
+    global $wpdb;
+    
+    $table_users = $wpdb->prefix . 'cms_users';
+    $table_corp_acc = $wpdb->prefix . 'cms_corp_acc';
+    
+    if ($hard_delete) {
+        // Hard delete - remove from both tables
+        $wpdb->delete($table_corp_acc, array('username' => $username), array('%s'));
+        $wpdb->delete($table_users, array('username' => $username), array('%s'));
+        return true;
+    } else {
+        // Soft delete - just mark as inactive
+        return cms_update_corporate_status($username, 'inactive');
+    }
+}
