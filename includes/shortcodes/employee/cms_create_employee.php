@@ -1,6 +1,6 @@
 <?php
 /**
- * CMS Employee Form Shortcode
+ * CMS Employee Form Shortcode with Complete Backend Functionality
  * Complete form for Employee registration with all required fields
  * 
  * Usage: [cms_employee_form]
@@ -27,7 +27,7 @@ function cms_employee_form_shortcode($atts) {
             'title' => 'Employee Registration',
             'description' => 'Please fill in all the details below to register as Employee.',
             'button_text' => 'Register Employee',
-            'success_message' => 'Employee registration submitted successfully!',
+            'success_message' => 'Employee registered successfully!',
             'class' => '',
             'show_labels' => 'yes',
             'required_field_mark' => '*',
@@ -316,6 +316,12 @@ function cms_employee_form_shortcode($atts) {
         box-shadow: 0 8px 25px rgba(230,126,34,0.3);
     }
     
+    .cms-emp-submit-button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+    }
+    
     .cms-emp-message {
         padding: 16px 20px;
         border-radius: 12px;
@@ -336,6 +342,12 @@ function cms_employee_form_shortcode($atts) {
         background: #ffe8e8;
         color: #b34141;
         border: 1px solid #ffc9c9;
+    }
+    
+    .cms-emp-message.warning {
+        background: #fff3cd;
+        color: #856404;
+        border: 1px solid #ffeeba;
     }
     
     .cms-emp-info-box {
@@ -376,6 +388,31 @@ function cms_employee_form_shortcode($atts) {
         top: 50%;
         transform: translateY(-50%);
         pointer-events: none;
+    }
+    
+    .cms-emp-password-strength {
+        margin-top: 5px;
+        height: 4px;
+        border-radius: 2px;
+        background: #eee;
+    }
+    
+    .cms-emp-password-strength-bar {
+        height: 100%;
+        width: 0;
+        border-radius: 2px;
+        transition: all 0.3s ease;
+    }
+    
+    .cms-emp-password-strength-bar.weak { width: 25%; background: #e74c3c; }
+    .cms-emp-password-strength-bar.medium { width: 50%; background: #f39c12; }
+    .cms-emp-password-strength-bar.strong { width: 75%; background: #3498db; }
+    .cms-emp-password-strength-bar.very-strong { width: 100%; background: #27ae60; }
+    
+    .cms-emp-password-hint {
+        font-size: 12px;
+        color: #7f8c8d;
+        margin-top: 5px;
     }
     
     @media (max-width: 768px) {
@@ -424,25 +461,53 @@ function cms_employee_form_shortcode($atts) {
         
         <?php
         // Display messages
-        if (isset($_GET['emp_reg']) && $_GET['emp_reg'] === 'success') {
-            echo '<div class="cms-emp-message success">' . esc_html($atts['success_message']) . '</div>';
-        }
-        
-        if (isset($_GET['emp_reg']) && $_GET['emp_reg'] === 'error') {
-            echo '<div class="cms-emp-message error">Registration failed. Please try again.</div>';
-        }
-        
-        if (isset($_GET['emp_reg']) && $_GET['emp_reg'] === 'validation') {
-            echo '<div class="cms-emp-message error">Please fill all required fields correctly.</div>';
-        }
-        
-        if (isset($_GET['emp_reg']) && $_GET['emp_reg'] === 'file_error') {
-            echo '<div class="cms-emp-message error">File upload failed. Please check file size and type.</div>';
+        if (isset($_GET['emp_reg'])) {
+            $message = '';
+            $type = 'error';
+            
+            switch ($_GET['emp_reg']) {
+                case 'success':
+                    $message = $atts['success_message'];
+                    $type = 'success';
+                    break;
+                case 'username_exists':
+                    $message = 'Username already exists. Please choose a different username.';
+                    break;
+                case 'email_exists':
+                    $message = 'Email already exists. Please use a different email address.';
+                    break;
+                case 'cnic_exists':
+                    $message = 'CNIC already exists. Employee with this CNIC is already registered.';
+                    break;
+                case 'validation_error':
+                    $message = 'Please fill all required fields correctly.';
+                    break;
+                case 'file_error':
+                    $message = 'File upload failed. Please check file size and type.';
+                    break;
+                case 'db_error':
+                    $message = 'Database error occurred. Please try again or contact administrator.';
+                    break;
+                case 'password_mismatch':
+                    $message = 'Passwords do not match.';
+                    break;
+                case 'weak_password':
+                    $message = 'Please choose a stronger password.';
+                    break;
+                default:
+                    $message = 'Registration failed. Please try again.';
+            }
+            
+            if ($message) {
+                echo '<div class="cms-emp-message ' . esc_attr($type) . '">' . esc_html($message) . '</div>';
+            }
         }
         ?>
         
-        <form method="post" action="" class="cms-emp-form" enctype="multipart/form-data">
+        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="cms-emp-form" enctype="multipart/form-data">
             <?php wp_nonce_field('cms_employee_registration', 'cms_emp_nonce'); ?>
+            <input type="hidden" name="action" value="cms_handle_employee_registration">
+            <input type="hidden" name="redirect_url" value="<?php echo esc_url(get_permalink()); ?>">
             
             <!-- Personal Information Section -->
             <div class="cms-emp-section">
@@ -545,16 +610,51 @@ function cms_employee_form_shortcode($atts) {
                         </label>
                         <select id="emp-corp-team" name="emp_corp_team" class="cms-emp-select" required>
                             <option value="">Select Team</option>
-                            <option value="IT">IT Department</option>
-                            <option value="HR">Human Resources</option>
-                            <option value="Finance">Finance & Accounts</option>
-                            <option value="Marketing">Marketing</option>
-                            <option value="Sales">Sales</option>
-                            <option value="Operations">Operations</option>
-                            <option value="Administration">Administration</option>
-                            <option value="Customer Support">Customer Support</option>
-                            <option value="Research & Development">R&D</option>
+                            <option value="smart-call">Smart Call Solutions</option>
+                            <option value="tele-central">TeleCentral</option>
                         </select>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Password Section -->
+            <div class="cms-emp-section">
+                <h3 class="cms-emp-section-title">Account Security</h3>
+                
+                <div class="cms-emp-grid">
+                    <div class="cms-emp-group">
+                        <label for="emp-password">
+                            Password <?php if($atts['required_field_mark']) echo '<span class="cms-emp-required">' . esc_html($atts['required_field_mark']) . '</span>'; ?>
+                        </label>
+                        <input 
+                            type="password" 
+                            id="emp-password" 
+                            name="emp_password" 
+                            class="cms-emp-control" 
+                            placeholder="Enter password"
+                            required
+                            minlength="8"
+                        >
+                        <div class="cms-emp-password-strength">
+                            <div class="cms-emp-password-strength-bar" id="password-strength-bar"></div>
+                        </div>
+                        <div class="cms-emp-password-hint" id="password-hint">
+                            Password must be at least 8 characters with letters and numbers
+                        </div>
+                    </div>
+                    
+                    <div class="cms-emp-group">
+                        <label for="emp-confirm-password">
+                            Confirm Password <?php if($atts['required_field_mark']) echo '<span class="cms-emp-required">' . esc_html($atts['required_field_mark']) . '</span>'; ?>
+                        </label>
+                        <input 
+                            type="password" 
+                            id="emp-confirm-password" 
+                            name="emp_confirm_password" 
+                            class="cms-emp-control" 
+                            placeholder="Confirm password"
+                            required
+                        >
                     </div>
                 </div>
             </div>
@@ -926,6 +1026,13 @@ function cms_employee_form_shortcode($atts) {
             if (fileSize > maxSize) {
                 alert('File size exceeds maximum limit of ' + (maxSize/1048576) + 'MB');
                 $(this).val('');
+                if (fileId === 'emp-cnic-pdf') {
+                    $('#cnic-file-name').text('');
+                } else if (fileId === 'emp-char-cert-pdf') {
+                    $('#char-cert-file-name').text('');
+                } else if (fileId === 'emp-letter-pdf') {
+                    $('#letter-file-name').text('');
+                }
             }
         });
         
@@ -941,10 +1048,53 @@ function cms_employee_form_shortcode($atts) {
             $(this).val(value);
         });
         
+        // Password strength checker
+        $('#emp-password').on('keyup', function() {
+            var password = $(this).val();
+            var strengthBar = $('#password-strength-bar');
+            var strength = 0;
+            
+            if (password.length >= 8) strength += 1;
+            if (password.match(/[a-z]+/)) strength += 1;
+            if (password.match(/[A-Z]+/)) strength += 1;
+            if (password.match(/[0-9]+/)) strength += 1;
+            if (password.match(/[$@#&!]+/)) strength += 1;
+            
+            strengthBar.removeClass('weak medium strong very-strong');
+            
+            if (strength <= 2) {
+                strengthBar.addClass('weak');
+                $('#password-hint').text('Weak password - add more complexity');
+            } else if (strength == 3) {
+                strengthBar.addClass('medium');
+                $('#password-hint').text('Medium password - getting better');
+            } else if (strength == 4) {
+                strengthBar.addClass('strong');
+                $('#password-hint').text('Strong password');
+            } else if (strength >= 5) {
+                strengthBar.addClass('very-strong');
+                $('#password-hint').text('Very strong password');
+            }
+        });
+        
+        // Password match check
+        $('#emp-confirm-password').on('keyup', function() {
+            var password = $('#emp-password').val();
+            var confirm = $(this).val();
+            
+            if (password !== confirm) {
+                $(this).addClass('error');
+                $('#password-hint').text('Passwords do not match');
+            } else {
+                $(this).removeClass('error');
+            }
+        });
+        
         // Form validation
         $('.cms-emp-form').on('submit', function(e) {
             var isValid = true;
             
+            // Check required fields
             $(this).find('[required]').each(function() {
                 if (!$(this).val()) {
                     $(this).addClass('error');
@@ -954,6 +1104,7 @@ function cms_employee_form_shortcode($atts) {
                 }
             });
             
+            // Email validation
             var email = $('#emp-email');
             var emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             if (email.val() && !emailPattern.test(email.val())) {
@@ -961,6 +1112,7 @@ function cms_employee_form_shortcode($atts) {
                 isValid = false;
             }
             
+            // Username validation
             var username = $('#emp-username');
             var usernamePattern = /^[a-zA-Z0-9_]{3,20}$/;
             if (username.val() && !usernamePattern.test(username.val())) {
@@ -968,6 +1120,7 @@ function cms_employee_form_shortcode($atts) {
                 isValid = false;
             }
             
+            // CNIC validation
             var cnic = $('#emp-cnic');
             var cnicPattern = /^[0-9]{5}-[0-9]{7}-[0-9]{1}$/;
             if (cnic.val() && !cnicPattern.test(cnic.val())) {
@@ -976,6 +1129,23 @@ function cms_employee_form_shortcode($atts) {
                 isValid = false;
             }
             
+            // Password match
+            var password = $('#emp-password').val();
+            var confirmPassword = $('#emp-confirm-password').val();
+            if (password !== confirmPassword) {
+                $('#emp-confirm-password').addClass('error');
+                alert('Passwords do not match');
+                isValid = false;
+            }
+            
+            // Password strength
+            if (password.length < 8) {
+                $('#emp-password').addClass('error');
+                alert('Password must be at least 8 characters long');
+                isValid = false;
+            }
+            
+            // Date validation
             var joiningDate = $('#emp-joining-date').val();
             var terminationDate = $('#emp-termination-date').val();
             if (terminationDate && joiningDate && terminationDate < joiningDate) {
@@ -985,10 +1155,10 @@ function cms_employee_form_shortcode($atts) {
             
             if (!isValid) {
                 e.preventDefault();
-                alert('Please fill all required fields correctly.');
                 return false;
             }
             
+            // Show progress bar
             $('#upload-progress').show();
             var progress = 0;
             var interval = setInterval(function() {
@@ -1012,6 +1182,9 @@ function cms_employee_form_shortcode($atts) {
             if ($(this).val() === '+other') {
                 var customCode = prompt('Enter country code (e.g., +1, +92):');
                 if (customCode) {
+                    if (!customCode.startsWith('+')) {
+                        customCode = '+' + customCode;
+                    }
                     $(this).append('<option value="' + customCode + '" selected>' + customCode + '</option>');
                 }
             }
@@ -1027,77 +1200,491 @@ add_shortcode('cms_employee_form', 'cms_employee_form_shortcode');
 add_shortcode(CMS_EMPLOYEE_CREATE_SHORTCODE, 'cms_employee_form_shortcode');
 
 /**
- * Handle Employee Form Submission
+ * Handle Employee Form Submission via admin-post.php
  */
-function cms_handle_employee_submission() {
-    if (isset($_POST['emp_submit'])) {
-        
-        // Verify nonce
-        if (!isset($_POST['cms_emp_nonce']) || !wp_verify_nonce($_POST['cms_emp_nonce'], 'cms_employee_registration')) {
-            wp_redirect(add_query_arg('emp_reg', 'error', wp_get_referer()));
+function cms_handle_employee_registration() {
+    global $wpdb;
+    
+    // Verify nonce
+    if (!isset($_POST['cms_emp_nonce']) || !wp_verify_nonce($_POST['cms_emp_nonce'], 'cms_employee_registration')) {
+        wp_redirect(add_query_arg('emp_reg', 'security_error', wp_get_referer()));
+        exit;
+    }
+    
+    $redirect_url = isset($_POST['redirect_url']) ? esc_url_raw($_POST['redirect_url']) : home_url();
+    
+    // Validate required fields
+    $required_fields = [
+        'emp_username', 'emp_fullname', 'emp_email', 'emp_fathername',
+        'emp_cnic', 'emp_position', 'emp_corp_team', 'emp_country_code',
+        'emp_contact', 'emp_emergency_code', 'emp_emergency', 'emp_joining_date',
+        'emp_wage_type', 'emp_basic_wage', 'emp_ref1_name', 'emp_ref1_cno',
+        'emp_ref2_name', 'emp_ref2_cno', 'emp_char_cert_no', 'emp_char_cert_exp',
+        'emp_password', 'emp_confirm_password'
+    ];
+    
+    foreach ($required_fields as $field) {
+        if (empty($_POST[$field])) {
+            wp_redirect(add_query_arg('emp_reg', 'validation_error', $redirect_url));
             exit;
         }
-        
-        // Handle file uploads
-        $upload_dir = wp_upload_dir();
-        $cms_upload_dir = $upload_dir['basedir'] . '/cms-employee-docs/';
-        
-        if (!file_exists($cms_upload_dir)) {
-            wp_mkdir_p($cms_upload_dir);
-        }
-        
-        $uploaded_files = array();
-        $file_fields = array('emp_cnic_pdf', 'emp_char_cert_pdf', 'emp_letter_pdf');
-        
-        foreach ($file_fields as $field) {
-            if (isset($_FILES[$field]) && $_FILES[$field]['error'] === UPLOAD_ERR_OK) {
-                $file_info = pathinfo($_FILES[$field]['name']);
-                $filename = uniqid() . '_' . sanitize_title($file_info['filename']) . '.pdf';
-                $filepath = $cms_upload_dir . $filename;
-                
-                if (move_uploaded_file($_FILES[$field]['tmp_name'], $filepath)) {
-                    $uploaded_files[$field] = $upload_dir['basedir'] . '/cms-employee-docs/' . $filename;
-                }
-            }
-        }
-        
-        // Collect all form data
-        $employee_data = array(
-            'username' => sanitize_user($_POST['emp_username']),
-            'fullname' => sanitize_text_field($_POST['emp_fullname']),
-            'email' => sanitize_email($_POST['emp_email']),
-            'fathername' => sanitize_text_field($_POST['emp_fathername']),
-            'cnic' => sanitize_text_field($_POST['emp_cnic']),
-            'position' => sanitize_text_field($_POST['emp_position']),
-            'corp_team' => sanitize_text_field($_POST['emp_corp_team']),
-            'country_code' => sanitize_text_field($_POST['emp_country_code']),
-            'contact' => preg_replace('/[^0-9]/', '', $_POST['emp_contact']),
-            'emergency_code' => sanitize_text_field($_POST['emp_emergency_code']),
-            'emergency' => preg_replace('/[^0-9]/', '', $_POST['emp_emergency']),
-            'joining_date' => sanitize_text_field($_POST['emp_joining_date']),
-            'wage_type' => sanitize_text_field($_POST['emp_wage_type']),
-            'basic_wage' => floatval($_POST['emp_basic_wage']),
-            'increment_date' => !empty($_POST['emp_increment_date']) ? sanitize_text_field($_POST['emp_increment_date']) : null,
-            'increment_percentage' => !empty($_POST['emp_increment_percentage']) ? floatval($_POST['emp_increment_percentage']) : null,
-            'termination_date' => !empty($_POST['emp_termination_date']) ? sanitize_text_field($_POST['emp_termination_date']) : null,
-            'ref1_name' => sanitize_text_field($_POST['emp_ref1_name']),
-            'ref1_cno' => preg_replace('/[^0-9]/', '', $_POST['emp_ref1_cno']),
-            'ref2_name' => sanitize_text_field($_POST['emp_ref2_name']),
-            'ref2_cno' => preg_replace('/[^0-9]/', '', $_POST['emp_ref2_cno']),
-            'char_cert_no' => sanitize_text_field($_POST['emp_char_cert_no']),
-            'char_cert_exp' => sanitize_text_field($_POST['emp_char_cert_exp']),
-            'cnic_pdf' => isset($uploaded_files['emp_cnic_pdf']) ? $uploaded_files['emp_cnic_pdf'] : null,
-            'char_cert_pdf' => isset($uploaded_files['emp_char_cert_pdf']) ? $uploaded_files['emp_char_cert_pdf'] : null,
-            'emp_letter_pdf' => isset($uploaded_files['emp_letter_pdf']) ? $uploaded_files['emp_letter_pdf'] : null,
-            'submitted_at' => current_time('mysql'),
-            'status' => 'active'
+    }
+    
+    // Validate password match
+    if ($_POST['emp_password'] !== $_POST['emp_confirm_password']) {
+        wp_redirect(add_query_arg('emp_reg', 'password_mismatch', $redirect_url));
+        exit;
+    }
+    
+    // Validate password strength
+    $password = $_POST['emp_password'];
+    if (strlen($password) < 8 || !preg_match('/[A-Za-z]/', $password) || !preg_match('/[0-9]/', $password)) {
+        wp_redirect(add_query_arg('emp_reg', 'weak_password', $redirect_url));
+        exit;
+    }
+    
+    // Check if username exists
+    $table_users = $wpdb->prefix . 'cms_users';
+    $username_exists = $wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM $table_users WHERE username = %s",
+        sanitize_user($_POST['emp_username'])
+    ));
+    
+    if ($username_exists > 0) {
+        wp_redirect(add_query_arg('emp_reg', 'username_exists', $redirect_url));
+        exit;
+    }
+    
+    // Check if email exists
+    $table_employee = $wpdb->prefix . 'cms_employee';
+    $email_exists = $wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM $table_employee WHERE email = %s",
+        sanitize_email($_POST['emp_email'])
+    ));
+    
+    if ($email_exists > 0) {
+        wp_redirect(add_query_arg('emp_reg', 'email_exists', $redirect_url));
+        exit;
+    }
+    
+    // Check if CNIC exists
+    $cnic_exists = $wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM $table_employee WHERE cnic_no = %s",
+        sanitize_text_field($_POST['emp_cnic'])
+    ));
+    
+    if ($cnic_exists > 0) {
+        wp_redirect(add_query_arg('emp_reg', 'cnic_exists', $redirect_url));
+        exit;
+    }
+    
+    // Handle file uploads
+    $uploaded_files = cms_handle_employee_file_uploads();
+    if ($uploaded_files === false) {
+        wp_redirect(add_query_arg('emp_reg', 'file_error', $redirect_url));
+        exit;
+    }
+    
+    // Start transaction
+    $wpdb->query('START TRANSACTION');
+    
+    try {
+        // Insert into users table
+        $user_inserted = $wpdb->insert(
+            $table_users,
+            [
+                'username' => sanitize_user($_POST['emp_username']),
+                'password' => wp_hash_password($_POST['emp_password']),
+                'role' => 'employee',
+                'status' => 'active',
+                'created_at' => current_time('mysql')
+            ],
+            ['%s', '%s', '%s', '%s', '%s']
         );
         
-        // For now, just redirect with success
-        wp_redirect(add_query_arg('emp_reg', 'success', wp_get_referer()));
+        if (!$user_inserted) {
+            throw new Exception('Failed to create user account');
+        }
+        
+        // Prepare contact numbers
+        $contact = preg_replace('/[^0-9]/', '', $_POST['emp_contact']);
+        $emergency = preg_replace('/[^0-9]/', '', $_POST['emp_emergency']);
+        $ref1_cno = preg_replace('/[^0-9]/', '', $_POST['emp_ref1_cno']);
+        $ref2_cno = preg_replace('/[^0-9]/', '', $_POST['emp_ref2_cno']);
+        
+        // Calculate updated wage if increment exists
+        $updated_wage = null;
+        if (!empty($_POST['emp_increment_percentage']) && !empty($_POST['emp_basic_wage'])) {
+            $increment_percentage = floatval($_POST['emp_increment_percentage']);
+            $basic_wage = floatval($_POST['emp_basic_wage']);
+            $updated_wage = $basic_wage + ($basic_wage * $increment_percentage / 100);
+        }
+        
+        // Insert into employee table
+        $employee_inserted = $wpdb->insert(
+            $table_employee,
+            [
+                'username' => sanitize_user($_POST['emp_username']),
+                'name' => sanitize_text_field($_POST['emp_fullname']),
+                'email' => sanitize_email($_POST['emp_email']),
+                'father_name' => sanitize_text_field($_POST['emp_fathername']),
+                'contact_num' => sanitize_text_field($_POST['emp_country_code'] . $contact),
+                'emergency_cno' => sanitize_text_field($_POST['emp_emergency_code'] . $emergency),
+                'ref1_name' => sanitize_text_field($_POST['emp_ref1_name']),
+                'ref1_cno' => sanitize_text_field($ref1_cno),
+                'ref2_name' => sanitize_text_field($_POST['emp_ref2_name']),
+                'ref2_cno' => sanitize_text_field($ref2_cno),
+                'joining_date' => sanitize_text_field($_POST['emp_joining_date']),
+                'wage_type' => sanitize_text_field($_POST['emp_wage_type']),
+                'basic_wage' => floatval($_POST['emp_basic_wage']),
+                'increment_date' => !empty($_POST['emp_increment_date']) ? sanitize_text_field($_POST['emp_increment_date']) : null,
+                'increment_percentage' => !empty($_POST['emp_increment_percentage']) ? floatval($_POST['emp_increment_percentage']) : null,
+                'updated_wage' => $updated_wage,
+                'corp_team' => sanitize_text_field($_POST['emp_corp_team']),
+                'position' => sanitize_text_field($_POST['emp_position']),
+                'cnic_no' => sanitize_text_field($_POST['emp_cnic']),
+                'cnic_pdf' => $uploaded_files['cnic_pdf'] ?? null,
+                'char_cert_no' => sanitize_text_field($_POST['emp_char_cert_no']),
+                'char_cert_exp' => sanitize_text_field($_POST['emp_char_cert_exp']),
+                'char_cert_pdf' => $uploaded_files['char_cert_pdf'] ?? null,
+                'emp_letter_pdf' => $uploaded_files['emp_letter_pdf'] ?? null,
+                'termination_date' => !empty($_POST['emp_termination_date']) ? sanitize_text_field($_POST['emp_termination_date']) : null,
+                'status' => 'active',
+                'created_at' => current_time('mysql')
+            ],
+            ['%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%f', '%s', '%f', '%f', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s']
+        );
+        
+        if (!$employee_inserted) {
+            throw new Exception('Failed to create employee profile');
+        }
+        
+        // If increment data exists, add to increment history
+        if (!empty($_POST['emp_increment_percentage']) && !empty($_POST['emp_increment_date'])) {
+            $table_increment = $wpdb->prefix . 'cms_increment_history';
+            $wpdb->insert(
+                $table_increment,
+                [
+                    'username' => sanitize_user($_POST['emp_username']),
+                    'increment_date' => sanitize_text_field($_POST['emp_increment_date']),
+                    'basic_wage' => floatval($_POST['emp_basic_wage']),
+                    'updated_wage' => $updated_wage,
+                    'increment_percentage' => floatval($_POST['emp_increment_percentage'])
+                ],
+                ['%s', '%s', '%f', '%f', '%f']
+            );
+        }
+        
+        // Commit transaction
+        $wpdb->query('COMMIT');
+        
+        // Log successful registration
+        error_log(sprintf(
+            'CMS: New employee registered - Username: %s, Name: %s, Email: %s',
+            sanitize_user($_POST['emp_username']),
+            sanitize_text_field($_POST['emp_fullname']),
+            sanitize_email($_POST['emp_email'])
+        ));
+        
+        // Send notification email to admin
+        cms_send_employee_registration_notification(sanitize_user($_POST['emp_username']));
+        
+        wp_redirect(add_query_arg('emp_reg', 'success', $redirect_url));
+        exit;
+        
+    } catch (Exception $e) {
+        $wpdb->query('ROLLBACK');
+        error_log('CMS Employee Registration Error: ' . $e->getMessage());
+        wp_redirect(add_query_arg('emp_reg', 'db_error', $redirect_url));
         exit;
     }
 }
-add_action('init', 'cms_handle_employee_submission');
+add_action('admin_post_nopriv_cms_handle_employee_registration', 'cms_handle_employee_registration');
+add_action('admin_post_cms_handle_employee_registration', 'cms_handle_employee_registration');
 
-?>
+/**
+ * Handle file uploads for employee documents
+ */
+function cms_handle_employee_file_uploads() {
+    $upload_dir = wp_upload_dir();
+    $cms_upload_dir = $upload_dir['basedir'] . '/cms-employee-docs/';
+    
+    // Create directory if not exists
+    if (!file_exists($cms_upload_dir)) {
+        wp_mkdir_p($cms_upload_dir);
+        
+        // Add .htaccess to protect directory
+        $htaccess_content = "Deny from all";
+        file_put_contents($cms_upload_dir . '.htaccess', $htaccess_content);
+        
+        // Add index.php for security
+        file_put_contents($cms_upload_dir . 'index.php', '<?php // Silence is golden');
+    }
+    
+    $uploaded_files = [];
+    $file_fields = [
+        'emp_cnic_pdf' => 'cnic_pdf',
+        'emp_char_cert_pdf' => 'char_cert_pdf',
+        'emp_letter_pdf' => 'emp_letter_pdf'
+    ];
+    
+    foreach ($file_fields as $field => $db_field) {
+        if (isset($_FILES[$field]) && $_FILES[$field]['error'] === UPLOAD_ERR_OK) {
+            $file = $_FILES[$field];
+            
+            // Validate file type
+            $file_type = wp_check_filetype($file['name']);
+            if ($file_type['ext'] !== 'pdf') {
+                return false;
+            }
+            
+            // Validate file size (5MB max)
+            if ($file['size'] > 5 * 1048576) {
+                return false;
+            }
+            
+            // Generate unique filename
+            $file_info = pathinfo($file['name']);
+            $filename = uniqid() . '_' . sanitize_title($file_info['filename']) . '.pdf';
+            $filepath = $cms_upload_dir . $filename;
+            
+            if (move_uploaded_file($file['tmp_name'], $filepath)) {
+                $uploaded_files[$db_field] = $upload_dir['basedir'] . '/cms-employee-docs/' . $filename;
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+    
+    return $uploaded_files;
+}
+
+/**
+ * Send notification email to admin about new employee registration
+ */
+function cms_send_employee_registration_notification($username) {
+    global $wpdb;
+    
+    $table_employee = $wpdb->prefix . 'cms_employee';
+    $employee = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $table_employee WHERE username = %s",
+        $username
+    ));
+    
+    if (!$employee) {
+        return;
+    }
+    
+    $admin_email = get_option('admin_email');
+    $site_name = get_bloginfo('name');
+    
+    $subject = sprintf('[%s] New Employee Registration: %s', $site_name, $employee->name);
+    
+    $message = sprintf(
+        "A new employee has been registered in the system.\n\n" .
+        "Employee Details:\n" .
+        "Name: %s\n" .
+        "Username: %s\n" .
+        "Email: %s\n" .
+        "Position: %s\n" .
+        "Team: %s\n" .
+        "Joining Date: %s\n" .
+        "Wage Type: %s\n" .
+        "Basic Wage: %s\n\n" .
+        "Login URL: %s\n",
+        $employee->name,
+        $employee->username,
+        $employee->email,
+        $employee->position,
+        $employee->corp_team,
+        $employee->joining_date,
+        $employee->wage_type,
+        $employee->basic_wage,
+        wp_login_url()
+    );
+    
+    wp_mail($admin_email, $subject, $message);
+}
+
+/**
+ * AJAX handler to check username availability
+ */
+function cms_check_username_availability() {
+    if (!isset($_POST['username'])) {
+        wp_send_json_error('No username provided');
+    }
+    
+    global $wpdb;
+    $table_users = $wpdb->prefix . 'cms_users';
+    $username = sanitize_user($_POST['username']);
+    
+    $exists = $wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM $table_users WHERE username = %s",
+        $username
+    ));
+    
+    if ($exists > 0) {
+        wp_send_json_error('Username already taken');
+    } else {
+        wp_send_json_success('Username available');
+    }
+}
+add_action('wp_ajax_cms_check_username', 'cms_check_username_availability');
+add_action('wp_ajax_nopriv_cms_check_username', 'cms_check_username_availability');
+
+/**
+ * AJAX handler to check email availability
+ */
+function cms_check_email_availability() {
+    if (!isset($_POST['email'])) {
+        wp_send_json_error('No email provided');
+    }
+    
+    global $wpdb;
+    $table_employee = $wpdb->prefix . 'cms_employee';
+    $email = sanitize_email($_POST['email']);
+    
+    $exists = $wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM $table_employee WHERE email = %s",
+        $email
+    ));
+    
+    if ($exists > 0) {
+        wp_send_json_error('Email already registered');
+    } else {
+        wp_send_json_success('Email available');
+    }
+}
+add_action('wp_ajax_cms_check_email', 'cms_check_email_availability');
+add_action('wp_ajax_nopriv_cms_check_email', 'cms_check_email_availability');
+
+/**
+ * AJAX handler to check CNIC availability
+ */
+function cms_check_cnic_availability() {
+    if (!isset($_POST['cnic'])) {
+        wp_send_json_error('No CNIC provided');
+    }
+    
+    global $wpdb;
+    $table_employee = $wpdb->prefix . 'cms_employee';
+    $cnic = sanitize_text_field($_POST['cnic']);
+    
+    $exists = $wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM $table_employee WHERE cnic_no = %s",
+        $cnic
+    ));
+    
+    if ($exists > 0) {
+        wp_send_json_error('CNIC already registered');
+    } else {
+        wp_send_json_success('CNIC available');
+    }
+}
+add_action('wp_ajax_cms_check_cnic', 'cms_check_cnic_availability');
+add_action('wp_ajax_nopriv_cms_check_cnic', 'cms_check_cnic_availability');
+
+/**
+ * Get employee by ID or username
+ */
+function cms_get_employee($identifier, $by = 'username') {
+    global $wpdb;
+    $table = $wpdb->prefix . 'cms_employee';
+    
+    if ($by === 'id') {
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table WHERE id = %d",
+            $identifier
+        ));
+    } else {
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table WHERE username = %s",
+            $identifier
+        ));
+    }
+}
+
+/**
+ * Update employee information
+ */
+function cms_update_employee($username, $data) {
+    global $wpdb;
+    $table = $wpdb->prefix . 'cms_employee';
+    
+    return $wpdb->update(
+        $table,
+        $data,
+        ['username' => $username],
+        null,
+        ['%s']
+    );
+}
+
+/**
+ * Delete employee (soft delete by changing status)
+ */
+function cms_delete_employee($username) {
+    return cms_update_employee($username, ['status' => 'terminated']);
+}
+
+/**
+ * Get all employees with optional filters
+ */
+function cms_get_employees($filters = []) {
+    global $wpdb;
+    $table = $wpdb->prefix . 'cms_employee';
+    
+    $where = ['1=1'];
+    $values = [];
+    
+    if (!empty($filters['status'])) {
+        $where[] = 'status = %s';
+        $values[] = $filters['status'];
+    }
+    
+    if (!empty($filters['corp_team'])) {
+        $where[] = 'corp_team = %s';
+        $values[] = $filters['corp_team'];
+    }
+    
+    if (!empty($filters['search'])) {
+        $where[] = '(name LIKE %s OR email LIKE %s OR username LIKE %s)';
+        $search = '%' . $wpdb->esc_like($filters['search']) . '%';
+        $values[] = $search;
+        $values[] = $search;
+        $values[] = $search;
+    }
+    
+    $sql = "SELECT * FROM $table WHERE " . implode(' AND ', $where) . " ORDER BY name ASC";
+    
+    if (!empty($values)) {
+        $sql = $wpdb->prepare($sql, $values);
+    }
+    
+    return $wpdb->get_results($sql);
+}
+
+/**
+ * Get employee count by status
+ */
+function cms_get_employee_counts() {
+    global $wpdb;
+    $table = $wpdb->prefix . 'cms_employee';
+    
+    $results = $wpdb->get_results("
+        SELECT status, COUNT(*) as count 
+        FROM $table 
+        GROUP BY status
+    ");
+    
+    $counts = ['active' => 0, 'inactive' => 0, 'terminated' => 0, 'total' => 0];
+    
+    foreach ($results as $row) {
+        $counts[$row->status] = intval($row->count);
+        $counts['total'] += intval($row->count);
+    }
+    
+    return $counts;
+}

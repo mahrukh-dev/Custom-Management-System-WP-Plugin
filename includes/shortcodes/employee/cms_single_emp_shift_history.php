@@ -1045,52 +1045,6 @@ function get_employee_by_username($username) {
 /**
  * Get employee by ID
  */
-function get_employee_by_id($id) {
-    $employees = array(
-        201 => array(
-            'id' => 201,
-            'username' => 'john_employee',
-            'name' => 'John Smith',
-            'email' => 'john.smith@company.com',
-            'position' => 'Senior Software Engineer',
-            'corp_team' => 'IT'
-        ),
-        202 => array(
-            'id' => 202,
-            'username' => 'emily_jones',
-            'name' => 'Emily Jones',
-            'email' => 'emily.jones@company.com',
-            'position' => 'HR Manager',
-            'corp_team' => 'HR'
-        ),
-        203 => array(
-            'id' => 203,
-            'username' => 'david_miller',
-            'name' => 'David Miller',
-            'email' => 'david.miller@company.com',
-            'position' => 'Financial Analyst',
-            'corp_team' => 'Finance'
-        ),
-        204 => array(
-            'id' => 204,
-            'username' => 'sarah_ahmed',
-            'name' => 'Sarah Ahmed',
-            'email' => 'sarah.ahmed@company.com',
-            'position' => 'Sales Representative',
-            'corp_team' => 'Sales'
-        ),
-        205 => array(
-            'id' => 205,
-            'username' => 'michael_brown',
-            'name' => 'Michael Brown',
-            'email' => 'michael.brown@company.com',
-            'position' => 'Marketing Specialist',
-            'corp_team' => 'Marketing'
-        )
-    );
-    
-    return isset($employees[$id]) ? $employees[$id] : null;
-}
 
 /**
  * Get employee shift history

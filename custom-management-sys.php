@@ -54,6 +54,9 @@ require_once CMS_PLUGIN_DIR_PATH . 'includes/cpt.php';
 require_once CMS_PLUGIN_DIR_PATH . 'includes/taxonomy.php';
 require_once CMS_PLUGIN_DIR_PATH . 'includes/metaboxes.php';
 
+//helpers
+// Include helper functions
+require_once plugin_dir_path(__FILE__) . 'includes/misc/helpers.php';
 // include shortcodes
 //require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes.php';
 //auth shortcodes
@@ -100,6 +103,10 @@ function cms_activate_plugin() {
     require_once CMS_PLUGIN_DIR_PATH . 'includes/config/slugs.php';
     require_once CMS_PLUGIN_DIR_PATH . 'includes/config/page-router.php';
     
+     // Create database tables
+    require_once CMS_PLUGIN_DIR_PATH . 'includes/db_handling/database.php'; // Create this file with above code
+    cms_create_database_tables();
+
     // Debug: Check if constants are defined
     error_log('CMS_LOGIN_PAGE_SLUG defined: ' . (defined('CMS_LOGIN_PAGE_SLUG') ? 'YES' : 'NO'));
     if (defined('CMS_LOGIN_PAGE_SLUG')) {
@@ -116,6 +123,9 @@ function cms_activate_plugin() {
         error_log('ERROR: cms_create_required_pages() function not found');
     }
     
+  // Create upload directory
+    cms_create_upload_directory();
+
     // Flush rewrite rules
     flush_rewrite_rules();
     update_option('cms_permalinks_flushed', true);

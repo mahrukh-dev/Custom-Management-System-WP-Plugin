@@ -1,7 +1,7 @@
 <?php
 /**
  * CMS Update Employee Shortcode
- * Form to update existing employee data
+ * Form to update existing employee data in database
  * 
  * Usage: [cms_update_employee]
  * Usage: [cms_update_employee employee_id="201"]
@@ -17,7 +17,229 @@ if (!defined('CMS_EMPLOYEE_UPDATE_SHORTCODE')) {
     define('CMS_EMPLOYEE_UPDATE_SHORTCODE', 'cms_employee_update');
 }
 
+/**
+ * Handle Employee Update Form Submission via init hook
+ */
+function cms_handle_employee_update_direct() {
+    // Check if our form was submitted
+    if (!isset($_POST['cms_emp_update_submit'])) {
+        return;
+    }
+    
+    global $wpdb;
+    
+    // Verify nonce
+    if (!isset($_POST['cms_emp_update_nonce']) || !wp_verify_nonce($_POST['cms_emp_update_nonce'], 'cms_employee_update')) {
+        wp_redirect(add_query_arg('update', 'error', wp_get_referer()));
+        exit;
+    }
+    
+    $employee_id = intval($_POST['cms_employee_id']);
+    $redirect_url = isset($_POST['redirect_url']) ? esc_url_raw($_POST['redirect_url']) : wp_get_referer();
+    
+    if (!$employee_id) {
+        wp_redirect(add_query_arg('update', 'error', $redirect_url));
+        exit;
+    }
+    
+    // Get current employee data
+    $table_employee = $wpdb->prefix . 'cms_employee';
+    $current_employee = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $table_employee WHERE id = %d",
+        $employee_id
+    ), ARRAY_A);
+    
+    if (!$current_employee) {
+        wp_redirect(add_query_arg('update', 'error', $redirect_url));
+        exit;
+    }
+    
+    // Handle file uploads
+    $uploaded_files = cms_handle_update_file_uploads($current_employee['username']);
+    
+    // Prepare update data with proper formatting
+    $update_data = array(
+        'name' => sanitize_text_field($_POST['emp_fullname']),
+        'email' => sanitize_email($_POST['emp_email']),
+        'father_name' => sanitize_text_field($_POST['emp_fathername']),
+        'contact_num' => sanitize_text_field($_POST['emp_contact_code'] . ' ' . preg_replace('/[^0-9]/', '', $_POST['emp_contact'])),
+        'emergency_cno' => sanitize_text_field($_POST['emp_emergency_code'] . ' ' . preg_replace('/[^0-9]/', '', $_POST['emp_emergency'])),
+        'position' => sanitize_text_field($_POST['emp_position']),
+        'corp_team' => sanitize_text_field($_POST['emp_corp_team']),
+        'wage_type' => sanitize_text_field($_POST['emp_wage_type']),
+        'basic_wage' => floatval($_POST['emp_basic_wage']),
+        'ref1_name' => sanitize_text_field($_POST['emp_ref1_name']),
+        'ref1_cno' => preg_replace('/[^0-9]/', '', $_POST['emp_ref1_cno']),
+        'ref2_name' => sanitize_text_field($_POST['emp_ref2_name']),
+        'ref2_cno' => preg_replace('/[^0-9]/', '', $_POST['emp_ref2_cno']),
+        'char_cert_no' => sanitize_text_field($_POST['emp_char_cert_no']),
+        'status' => sanitize_text_field($_POST['emp_status'])
+    );
+    
+    // Handle optional fields
+    if (!empty($_POST['emp_increment_date'])) {
+        $update_data['increment_date'] = sanitize_text_field($_POST['emp_increment_date']);
+    } else {
+        $update_data['increment_date'] = null;
+    }
+    
+    if (!empty($_POST['emp_increment_percentage'])) {
+        $update_data['increment_percentage'] = floatval($_POST['emp_increment_percentage']);
+    } else {
+        $update_data['increment_percentage'] = null;
+    }
+    
+    if (!empty($_POST['emp_termination_date'])) {
+        $update_data['termination_date'] = sanitize_text_field($_POST['emp_termination_date']);
+    } else {
+        $update_data['termination_date'] = null;
+    }
+    
+    if (!empty($_POST['emp_char_cert_exp'])) {
+        $update_data['char_cert_exp'] = sanitize_text_field($_POST['emp_char_cert_exp']);
+    } else {
+        $update_data['char_cert_exp'] = null;
+    }
+    
+    // Calculate updated wage if increment data provided
+    if (!empty($update_data['increment_percentage']) && !empty($update_data['increment_date'])) {
+        $update_data['updated_wage'] = $update_data['basic_wage'] + ($update_data['basic_wage'] * $update_data['increment_percentage'] / 100);
+    } else {
+        $update_data['updated_wage'] = null;
+    }
+    
+    // Merge with uploaded file paths
+    if (!empty($uploaded_files)) {
+        if (isset($uploaded_files['cnic_pdf'])) {
+            $update_data['cnic_pdf'] = $uploaded_files['cnic_pdf'];
+        }
+        if (isset($uploaded_files['char_cert_pdf'])) {
+            $update_data['char_cert_pdf'] = $uploaded_files['char_cert_pdf'];
+        }
+        if (isset($uploaded_files['emp_letter_pdf'])) {
+            $update_data['emp_letter_pdf'] = $uploaded_files['emp_letter_pdf'];
+        }
+    }
+    
+    // Prepare format array for wpdb->update
+    $format = array(
+        'name' => '%s',
+        'email' => '%s',
+        'father_name' => '%s',
+        'contact_num' => '%s',
+        'emergency_cno' => '%s',
+        'position' => '%s',
+        'corp_team' => '%s',
+        'wage_type' => '%s',
+        'basic_wage' => '%f',
+        'increment_date' => '%s',
+        'increment_percentage' => '%f',
+        'updated_wage' => '%f',
+        'termination_date' => '%s',
+        'ref1_name' => '%s',
+        'ref1_cno' => '%s',
+        'ref2_name' => '%s',
+        'ref2_cno' => '%s',
+        'char_cert_no' => '%s',
+        'char_cert_exp' => '%s',
+        'cnic_pdf' => '%s',
+        'char_cert_pdf' => '%s',
+        'emp_letter_pdf' => '%s',
+        'status' => '%s'
+    );
+    
+    // Remove null values and their formats
+    foreach ($update_data as $key => $value) {
+        if ($value === null) {
+            unset($update_data[$key]);
+            unset($format[$key]);
+        }
+    }
+    
+    // Debug: Log the update data
+    error_log('CMS Update Data: ' . print_r($update_data, true));
+    error_log('CMS Update Format: ' . print_r($format, true));
+    
+    // Start transaction
+    $wpdb->query('START TRANSACTION');
+    
+    try {
+        // Update employee table
+        $updated = $wpdb->update(
+            $table_employee,
+            $update_data,
+            array('id' => $employee_id),
+            $format,
+            array('%d')
+        );
+        
+        if ($updated === false) {
+            // Get the last error
+            $db_error = $wpdb->last_error;
+            error_log('CMS DB Error: ' . $db_error);
+            throw new Exception('Database error: ' . $db_error);
+        }
+        
+        // If increment data was added, record in increment history
+        if (!empty($_POST['emp_increment_date']) && !empty($_POST['emp_increment_percentage'])) {
+            $table_increment = $wpdb->prefix . 'cms_increment_history';
+            
+            // Check if this increment is already recorded
+            $exists = $wpdb->get_var($wpdb->prepare(
+                "SELECT id FROM $table_increment 
+                 WHERE username = %s AND increment_date = %s",
+                $current_employee['username'],
+                sanitize_text_field($_POST['emp_increment_date'])
+            ));
+            
+            if (!$exists) {
+                $increment_data = array(
+                    'username' => $current_employee['username'],
+                    'increment_date' => sanitize_text_field($_POST['emp_increment_date']),
+                    'basic_wage' => floatval($_POST['emp_basic_wage']),
+                    'increment_percentage' => floatval($_POST['emp_increment_percentage'])
+                );
+                
+                if (isset($update_data['updated_wage'])) {
+                    $increment_data['updated_wage'] = $update_data['updated_wage'];
+                }
+                
+                $increment_inserted = $wpdb->insert(
+                    $table_increment,
+                    $increment_data,
+                    array('%s', '%s', '%f', '%f', '%f')
+                );
+                
+                if ($increment_inserted === false) {
+                    error_log('CMS Increment Insert Error: ' . $wpdb->last_error);
+                }
+            }
+        }
+        
+        $wpdb->query('COMMIT');
+        
+        // Log the update
+        error_log("CMS: Employee updated successfully - ID: $employee_id, Username: {$current_employee['username']}");
+        
+        // Redirect with success message
+        wp_redirect(add_query_arg('update', 'success', $redirect_url));
+        exit;
+        
+    } catch (Exception $e) {
+        $wpdb->query('ROLLBACK');
+        error_log('CMS Employee Update Error: ' . $e->getMessage());
+        wp_redirect(add_query_arg(array('update' => 'error', 'error_msg' => urlencode($e->getMessage())), $redirect_url));
+        exit;
+    }
+}
+add_action('init', 'cms_handle_employee_update_direct');
+
+/**
+ * Update Employee Shortcode
+ */
 function cms_update_employee_shortcode($atts) {
+    global $wpdb;
+    
     $atts = shortcode_atts(
         array(
             'employee_id' => 0,
@@ -30,6 +252,7 @@ function cms_update_employee_shortcode($atts) {
         'cms_update_employee'
     );
     
+    // Get employee ID from various sources
     $employee_id = $atts['employee_id'];
     if (!$employee_id) {
         $employee_id = get_query_var('employee_id');
@@ -39,19 +262,48 @@ function cms_update_employee_shortcode($atts) {
     }
     
     if (!$employee_id) {
-        return '<div style="padding: 20px; background: #ffe8e8; color: #b34141; border-radius: 8px; text-align: center;">No employee selected. Please provide an employee ID.</div>';
+        return '<div style="padding: 30px; background: #fff4ed; color: #e67e22; border-radius: 12px; text-align: center; font-size: 16px;">🔍 Please select an employee to update.</div>';
     }
     
-    $employee = get_cms_employee_by_id($employee_id);
+    // Get employee from database
+    $table_employee = $wpdb->prefix . 'cms_employee';
+    $employee = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $table_employee WHERE id = %d",
+        $employee_id
+    ), ARRAY_A);
     
     if (!$employee) {
-        return '<div style="padding: 20px; background: #ffe8e8; color: #b34141; border-radius: 8px; text-align: center;">Employee not found.</div>';
+        return '<div style="padding: 30px; background: #ffe8e8; color: #b34141; border-radius: 12px; text-align: center; font-size: 16px;">❌ Employee not found.</div>';
     }
+    
+    // Check if function exists before using it
+    if (function_exists('cms_get_file_url')) {
+        $employee['cnic_pdf_url'] = cms_get_file_url($employee['cnic_pdf']);
+        $employee['char_cert_pdf_url'] = cms_get_file_url($employee['char_cert_pdf']);
+        $employee['emp_letter_pdf_url'] = cms_get_file_url($employee['emp_letter_pdf']);
+    } else {
+        $employee['cnic_pdf_url'] = $employee['cnic_pdf'];
+        $employee['char_cert_pdf_url'] = $employee['char_cert_pdf'];
+        $employee['emp_letter_pdf_url'] = $employee['emp_letter_pdf'];
+    }
+    
+    // Parse contact numbers
+    $contact_parts = explode(' ', $employee['contact_num'], 2);
+    $contact_code = isset($contact_parts[0]) ? $contact_parts[0] : '+1';
+    $contact_number = isset($contact_parts[1]) ? $contact_parts[1] : $employee['contact_num'];
+    
+    $emergency_parts = explode(' ', $employee['emergency_cno'], 2);
+    $emergency_code = isset($emergency_parts[0]) ? $emergency_parts[0] : '+1';
+    $emergency_number = isset($emergency_parts[1]) ? $emergency_parts[1] : $employee['emergency_cno'];
+    
+    // Get current URL for form action
+    $current_url = add_query_arg('employee_id', $employee_id, get_permalink());
     
     ob_start();
     ?>
     
     <style>
+    /* Update Employee Styles - same as before */
     .cms-emp-update-container {
         max-width: 1000px;
         margin: 30px auto;
@@ -140,14 +392,6 @@ function cms_update_employee_shortcode($atts) {
         margin-bottom: 5px;
     }
     
-    .cms-emp-form-group.full-width {
-        grid-column: span 2;
-    }
-    
-    .cms-emp-form-group.full-width-3 {
-        grid-column: span 3;
-    }
-    
     .cms-emp-form-group label {
         display: block;
         margin-bottom: 8px;
@@ -185,6 +429,10 @@ function cms_update_employee_shortcode($atts) {
         cursor: not-allowed;
     }
     
+    .cms-emp-form-control.error {
+        border-color: #e74c3c;
+    }
+    
     .cms-emp-phone-group {
         display: flex;
         gap: 10px;
@@ -195,34 +443,77 @@ function cms_update_employee_shortcode($atts) {
         flex-shrink: 0;
     }
     
-    .cms-emp-wage-group {
-        display: flex;
-        gap: 15px;
-    }
-    
     .cms-emp-file-info {
         display: flex;
         align-items: center;
         gap: 10px;
-        padding: 10px 15px;
-        background: #ffffff;
-        border: 1px solid #ffe6d5;
+        padding: 12px 15px;
+        background: #f0f9ff;
+        border: 1px solid #b8e0ff;
         border-radius: 8px;
         margin-top: 5px;
+        margin-bottom: 10px;
     }
     
     .cms-emp-file-link {
-        color: #e67e22;
+        color: #0369a1;
         text-decoration: none;
-        display: flex;
+        display: inline-flex;
         align-items: center;
         gap: 5px;
         font-size: 13px;
+        font-weight: 500;
+        padding: 4px 10px;
+        background: white;
+        border-radius: 20px;
+        border: 1px solid #b8e0ff;
+        transition: all 0.2s ease;
     }
     
     .cms-emp-file-link:hover {
-        color: #d35400;
-        text-decoration: underline;
+        background: #e0f2fe;
+        color: #0284c7;
+    }
+    
+    .cms-emp-file-link.view {
+        color: #e67e22;
+        border-color: #ffe6d5;
+    }
+    
+    .cms-emp-file-link.view:hover {
+        background: #fff4ed;
+    }
+    
+    .cms-emp-file-link.download {
+        color: #059669;
+        border-color: #a7f3d0;
+    }
+    
+    .cms-emp-file-link.download:hover {
+        background: #d1fae5;
+    }
+    
+    .cms-emp-file-badge {
+        background: #e67e22;
+        color: white;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 10px;
+        margin-left: 8px;
+    }
+    
+    .cms-emp-file-name {
+        font-size: 11px;
+        color: #64748b;
+        word-break: break-all;
+        margin-top: 2px;
+    }
+    
+    .cms-emp-file-note {
+        font-size: 12px;
+        color: #718096;
+        margin-top: 5px;
+        display: block;
     }
     
     .cms-emp-update-footer {
@@ -251,6 +542,12 @@ function cms_update_employee_shortcode($atts) {
         background: linear-gradient(145deg, #d35400, #a04000);
         transform: translateY(-2px);
         box-shadow: 0 8px 20px rgba(230,126,34,0.2);
+    }
+    
+    .cms-emp-update-button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
     }
     
     .cms-emp-cancel-button {
@@ -304,35 +601,74 @@ function cms_update_employee_shortcode($atts) {
         font-size: 14px;
         color: #2c3e50;
     }
+    
+    .cms-emp-progress {
+        width: 100%;
+        height: 4px;
+        background: #ffe6d5;
+        border-radius: 2px;
+        margin: 20px 0;
+        overflow: hidden;
+        display: none;
+    }
+    
+    .cms-emp-progress-bar {
+        height: 100%;
+        background: #e67e22;
+        width: 0%;
+        transition: width 0.3s ease;
+    }
+    
+    .cms-emp-debug-box {
+        background: #f1f5f9;
+        border-left: 4px solid #3b82f6;
+        padding: 15px 20px;
+        border-radius: 8px;
+        margin-bottom: 25px;
+        font-size: 13px;
+        color: #1e293b;
+        display: none; /* Hide by default, enable for debugging */
+    }
     </style>
     
     <div class="cms-emp-update-container <?php echo esc_attr($atts['class']); ?>">
         
         <div class="cms-emp-update-header">
             <h2 class="cms-emp-update-title"><?php echo esc_html($atts['title']); ?></h2>
-            <a href="<?php echo esc_url(remove_query_arg('employee_id', wp_get_referer())); ?>" class="cms-emp-back-link">
+            <a href="<?php echo esc_url(remove_query_arg('employee_id', wp_get_referer() ?: home_url('employee-list'))); ?>" class="cms-emp-back-link">
                 ← Back to List
             </a>
         </div>
         
         <?php
+        // Check for update status in URL
         if (isset($_GET['update']) && $_GET['update'] === 'success') {
-            echo '<div class="cms-emp-message success">' . esc_html($atts['success_message']) . '</div>';
+            echo '<div class="cms-emp-message success">✅ ' . esc_html($atts['success_message']) . '</div>';
         }
         
         if (isset($_GET['update']) && $_GET['update'] === 'error') {
-            echo '<div class="cms-emp-message error">Update failed. Please try again.</div>';
+            $error_msg = isset($_GET['error_msg']) ? urldecode($_GET['error_msg']) : 'Please try again.';
+            echo '<div class="cms-emp-message error">❌ Update failed: ' . esc_html($error_msg) . '</div>';
         }
         ?>
         
-        <div class="cms-emp-info-box">
-            <strong>📝 Editing Employee:</strong> <?php echo esc_html($employee['name']); ?> (ID: <?php echo esc_html($employee_id); ?>)
+        <!-- Debug Info (remove in production) -->
+        <div class="cms-emp-debug-box">
+            <strong>Debug Info:</strong> Employee ID: <?php echo $employee_id; ?><br>
+            <strong>Table:</strong> <?php echo $table_employee; ?><br>
+            <strong>Username:</strong> <?php echo $employee['username']; ?>
         </div>
         
-        <form method="post" action="" id="cms-emp-update-form" enctype="multipart/form-data">
+        <div class="cms-emp-info-box">
+            <strong>📝 Editing Employee:</strong> <?php echo esc_html($employee['name']); ?> 
+            (ID: <?php echo esc_html($employee_id); ?> | Username: @<?php echo esc_html($employee['username']); ?>)
+        </div>
+        
+        <form method="post" action="<?php echo esc_url($current_url); ?>" id="cms-emp-update-form" enctype="multipart/form-data">
             <?php wp_nonce_field('cms_employee_update', 'cms_emp_update_nonce'); ?>
             <input type="hidden" name="cms_employee_id" value="<?php echo esc_attr($employee_id); ?>">
-            <input type="hidden" name="cms_emp_update_action" value="update_employee">
+            <input type="hidden" name="redirect_url" value="<?php echo esc_url($current_url); ?>">
+            <input type="hidden" name="cms_emp_update_submit" value="1">
             
             <!-- Personal Information -->
             <div class="cms-emp-update-section">
@@ -349,6 +685,7 @@ function cms_update_employee_shortcode($atts) {
                             value="<?php echo esc_attr($employee['username']); ?>"
                             readonly
                         >
+                        <small style="color: #718096; font-size: 11px;">Username cannot be changed</small>
                     </div>
                     
                     <div class="cms-emp-form-group">
@@ -394,9 +731,10 @@ function cms_update_employee_shortcode($atts) {
                             id="emp-cnic" 
                             name="emp_cnic" 
                             class="cms-emp-form-control" 
-                            value="<?php echo esc_attr($employee['cnic']); ?>"
+                            value="<?php echo esc_attr($employee['cnic_no']); ?>"
                             readonly
                         >
+                        <small style="color: #718096; font-size: 11px;">CNIC cannot be changed</small>
                     </div>
                     
                     <div class="cms-emp-form-group">
@@ -414,15 +752,9 @@ function cms_update_employee_shortcode($atts) {
                     <div class="cms-emp-form-group">
                         <label for="emp-corp-team">Corporate Team <span class="cms-emp-required">*</span></label>
                         <select id="emp-corp-team" name="emp_corp_team" class="cms-emp-form-control" required>
-                            <option value="IT" <?php selected($employee['corp_team'], 'IT'); ?>>IT Department</option>
-                            <option value="HR" <?php selected($employee['corp_team'], 'HR'); ?>>Human Resources</option>
-                            <option value="Finance" <?php selected($employee['corp_team'], 'Finance'); ?>>Finance & Accounts</option>
-                            <option value="Marketing" <?php selected($employee['corp_team'], 'Marketing'); ?>>Marketing</option>
-                            <option value="Sales" <?php selected($employee['corp_team'], 'Sales'); ?>>Sales</option>
-                            <option value="Operations" <?php selected($employee['corp_team'], 'Operations'); ?>>Operations</option>
-                            <option value="Administration" <?php selected($employee['corp_team'], 'Administration'); ?>>Administration</option>
-                            <option value="Customer Support" <?php selected($employee['corp_team'], 'Customer Support'); ?>>Customer Support</option>
-                            <option value="Research & Development" <?php selected($employee['corp_team'], 'Research & Development'); ?>>R&D</option>
+                            <option value="">Select Team</option>
+                            <option value="smart-call" <?php selected($employee['corp_team'], 'smart-call'); ?>>Smart Call</option>
+                            <option value="tele" <?php selected($employee['corp_team'], 'tele'); ?>>Tele</option>
                         </select>
                     </div>
                 </div>
@@ -441,16 +773,19 @@ function cms_update_employee_shortcode($atts) {
                                 id="emp-contact-code" 
                                 name="emp_contact_code" 
                                 class="cms-emp-form-control cms-emp-country-code" 
-                                value="<?php echo esc_attr(explode(' ', $employee['contact'])[0]); ?>"
+                                value="<?php echo esc_attr($contact_code); ?>"
                                 placeholder="+1"
+                                required
                             >
                             <input 
                                 type="tel" 
                                 id="emp-contact" 
                                 name="emp_contact" 
                                 class="cms-emp-form-control" 
-                                value="<?php echo esc_attr(implode(' ', array_slice(explode(' ', $employee['contact']), 1))); ?>"
+                                value="<?php echo esc_attr(preg_replace('/[^0-9]/', '', $contact_number)); ?>"
                                 required
+                                pattern="[0-9]{10,15}"
+                                title="Please enter 10-15 digits"
                             >
                         </div>
                     </div>
@@ -463,16 +798,19 @@ function cms_update_employee_shortcode($atts) {
                                 id="emp-emergency-code" 
                                 name="emp_emergency_code" 
                                 class="cms-emp-form-control cms-emp-country-code" 
-                                value="<?php echo esc_attr(explode(' ', $employee['emergency'])[0]); ?>"
+                                value="<?php echo esc_attr($emergency_code); ?>"
                                 placeholder="+1"
+                                required
                             >
                             <input 
                                 type="tel" 
                                 id="emp-emergency" 
                                 name="emp_emergency" 
                                 class="cms-emp-form-control" 
-                                value="<?php echo esc_attr(implode(' ', array_slice(explode(' ', $employee['emergency']), 1))); ?>"
+                                value="<?php echo esc_attr(preg_replace('/[^0-9]/', '', $emergency_number)); ?>"
                                 required
+                                pattern="[0-9]{10,15}"
+                                title="Please enter 10-15 digits"
                             >
                         </div>
                     </div>
@@ -497,7 +835,7 @@ function cms_update_employee_shortcode($atts) {
                     </div>
                     
                     <div class="cms-emp-form-group">
-                        <label for="emp-wage-type">Wage Type</label>
+                        <label for="emp-wage-type">Wage Type <span class="cms-emp-required">*</span></label>
                         <select id="emp-wage-type" name="emp_wage_type" class="cms-emp-form-control" required>
                             <option value="hourly" <?php selected($employee['wage_type'], 'hourly'); ?>>Hourly</option>
                             <option value="monthly" <?php selected($employee['wage_type'], 'monthly'); ?>>Monthly</option>
@@ -554,6 +892,9 @@ function cms_update_employee_shortcode($atts) {
                         >
                     </div>
                 </div>
+                <div class="cms-emp-file-note">
+                    ⚠️ Note: If both increment date and percentage are provided, the updated wage will be automatically calculated.
+                </div>
             </div>
             
             <!-- Reference Information -->
@@ -580,8 +921,9 @@ function cms_update_employee_shortcode($atts) {
                             id="emp-ref1-cno" 
                             name="emp_ref1_cno" 
                             class="cms-emp-form-control" 
-                            value="<?php echo esc_attr($employee['ref1_cno']); ?>"
+                            value="<?php echo esc_attr(preg_replace('/[^0-9]/', '', $employee['ref1_cno'])); ?>"
                             required
+                            pattern="[0-9]{10,15}"
                         >
                     </div>
                     
@@ -604,36 +946,19 @@ function cms_update_employee_shortcode($atts) {
                             id="emp-ref2-cno" 
                             name="emp_ref2_cno" 
                             class="cms-emp-form-control" 
-                            value="<?php echo esc_attr($employee['ref2_cno']); ?>"
+                            value="<?php echo esc_attr(preg_replace('/[^0-9]/', '', $employee['ref2_cno'])); ?>"
                             required
+                            pattern="[0-9]{10,15}"
                         >
                     </div>
                 </div>
             </div>
             
-            <!-- Documents Information -->
+            <!-- Documents Section -->
             <div class="cms-emp-update-section">
-                <h3 class="cms-emp-update-section-title">Documents</h3>
+                <h3 class="cms-emp-update-section-title">Documents & Certificate</h3>
                 
                 <div class="cms-emp-form-grid-3">
-                    <div class="cms-emp-form-group">
-                        <label>CNIC PDF</label>
-                        <?php if($employee['cnic_pdf']): ?>
-                        <div class="cms-emp-file-info">
-                            <span>📄</span>
-                            <a href="<?php echo esc_url($employee['cnic_pdf']); ?>" target="_blank" class="cms-emp-file-link">
-                                View Current File
-                            </a>
-                        </div>
-                        <?php endif; ?>
-                        <input 
-                            type="file" 
-                            id="emp-cnic-pdf" 
-                            name="emp_cnic_pdf" 
-                            accept=".pdf,.PDF"
-                        >
-                    </div>
-                    
                     <div class="cms-emp-form-group">
                         <label for="emp-char-cert-no">Character Certificate #</label>
                         <input 
@@ -657,13 +982,90 @@ function cms_update_employee_shortcode($atts) {
                     </div>
                     
                     <div class="cms-emp-form-group">
-                        <label>Character Certificate PDF</label>
-                        <?php if($employee['char_cert_pdf']): ?>
+                        <label for="emp-status">Employment Status</label>
+                        <select id="emp-status" name="emp_status" class="cms-emp-form-control">
+                            <option value="active" <?php selected($employee['status'], 'active'); ?>>Active</option>
+                            <option value="inactive" <?php selected($employee['status'], 'inactive'); ?>>Inactive</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="cms-emp-form-grid" style="margin-top: 20px;">
+                    <!-- CNIC PDF -->
+                    <div class="cms-emp-form-group">
+                        <label>CNIC PDF</label>
+                        <?php if (!empty($employee['cnic_pdf'])): ?>
                         <div class="cms-emp-file-info">
-                            <span>📜</span>
-                            <a href="<?php echo esc_url($employee['char_cert_pdf']); ?>" target="_blank" class="cms-emp-file-link">
-                                View Current File
-                            </a>
+                            <span style="font-size: 20px;">📄</span>
+                            <div style="flex: 1;">
+                                <div style="font-weight: 500; font-size: 13px;">Current File</div>
+                                <div class="cms-emp-file-name">
+                                    <?php echo basename($employee['cnic_pdf']); ?>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 5px;">
+                                <a href="<?php echo esc_url($employee['cnic_pdf_url']); ?>" 
+                                   target="_blank" 
+                                   class="cms-emp-file-link view"
+                                   onclick="return cmsOpenPDF('<?php echo esc_url($employee['cnic_pdf_url']); ?>')">
+                                    👁️ View
+                                </a>
+                                <a href="<?php echo esc_url($employee['cnic_pdf_url']); ?>" 
+                                   download 
+                                   class="cms-emp-file-link download">
+                                    ⬇️ Download
+                                </a>
+                            </div>
+                        </div>
+                        <div style="font-size: 12px; color: #e67e22; margin: 5px 0;">
+                            ⚠️ Leave empty to keep current file
+                        </div>
+                        <?php else: ?>
+                        <div style="background: #fef9f5; padding: 10px; border-radius: 8px; margin-bottom: 10px; font-size: 13px; color: #718096;">
+                            No file uploaded yet
+                        </div>
+                        <?php endif; ?>
+                        <input 
+                            type="file" 
+                            id="emp-cnic-pdf" 
+                            name="emp_cnic_pdf" 
+                            accept=".pdf,.PDF"
+                        >
+                        <small class="cms-emp-file-note">Upload new PDF only if you want to replace the current file (max 5MB)</small>
+                    </div>
+                    
+                    <!-- Character Certificate PDF -->
+                    <div class="cms-emp-form-group">
+                        <label>Character Certificate PDF</label>
+                        <?php if (!empty($employee['char_cert_pdf'])): ?>
+                        <div class="cms-emp-file-info">
+                            <span style="font-size: 20px;">📜</span>
+                            <div style="flex: 1;">
+                                <div style="font-weight: 500; font-size: 13px;">Current File</div>
+                                <div class="cms-emp-file-name">
+                                    <?php echo basename($employee['char_cert_pdf']); ?>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 5px;">
+                                <a href="<?php echo esc_url($employee['char_cert_pdf_url']); ?>" 
+                                   target="_blank" 
+                                   class="cms-emp-file-link view"
+                                   onclick="return cmsOpenPDF('<?php echo esc_url($employee['char_cert_pdf_url']); ?>')">
+                                    👁️ View
+                                </a>
+                                <a href="<?php echo esc_url($employee['char_cert_pdf_url']); ?>" 
+                                   download 
+                                   class="cms-emp-file-link download">
+                                    ⬇️ Download
+                                </a>
+                            </div>
+                        </div>
+                        <div style="font-size: 12px; color: #e67e22; margin: 5px 0;">
+                            ⚠️ Leave empty to keep current file
+                        </div>
+                        <?php else: ?>
+                        <div style="background: #fef9f5; padding: 10px; border-radius: 8px; margin-bottom: 10px; font-size: 13px; color: #718096;">
+                            No file uploaded yet
                         </div>
                         <?php endif; ?>
                         <input 
@@ -672,16 +1074,41 @@ function cms_update_employee_shortcode($atts) {
                             name="emp_char_cert_pdf" 
                             accept=".pdf,.PDF"
                         >
+                        <small class="cms-emp-file-note">Upload new PDF only if you want to replace the current file</small>
                     </div>
                     
+                    <!-- Employment Letter PDF -->
                     <div class="cms-emp-form-group">
                         <label>Employment Letter PDF</label>
-                        <?php if($employee['emp_letter_pdf']): ?>
+                        <?php if (!empty($employee['emp_letter_pdf'])): ?>
                         <div class="cms-emp-file-info">
-                            <span>📋</span>
-                            <a href="<?php echo esc_url($employee['emp_letter_pdf']); ?>" target="_blank" class="cms-emp-file-link">
-                                View Current File
-                            </a>
+                            <span style="font-size: 20px;">📋</span>
+                            <div style="flex: 1;">
+                                <div style="font-weight: 500; font-size: 13px;">Current File</div>
+                                <div class="cms-emp-file-name">
+                                    <?php echo basename($employee['emp_letter_pdf']); ?>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 5px;">
+                                <a href="<?php echo esc_url($employee['emp_letter_pdf_url']); ?>" 
+                                   target="_blank" 
+                                   class="cms-emp-file-link view"
+                                   onclick="return cmsOpenPDF('<?php echo esc_url($employee['emp_letter_pdf_url']); ?>')">
+                                    👁️ View
+                                </a>
+                                <a href="<?php echo esc_url($employee['emp_letter_pdf_url']); ?>" 
+                                   download 
+                                   class="cms-emp-file-link download">
+                                    ⬇️ Download
+                                </a>
+                            </div>
+                        </div>
+                        <div style="font-size: 12px; color: #e67e22; margin: 5px 0;">
+                            ⚠️ Leave empty to keep current file
+                        </div>
+                        <?php else: ?>
+                        <div style="background: #fef9f5; padding: 10px; border-radius: 8px; margin-bottom: 10px; font-size: 13px; color: #718096;">
+                            No file uploaded yet
                         </div>
                         <?php endif; ?>
                         <input 
@@ -690,23 +1117,22 @@ function cms_update_employee_shortcode($atts) {
                             name="emp_letter_pdf" 
                             accept=".pdf,.PDF"
                         >
-                    </div>
-                    
-                    <div class="cms-emp-form-group">
-                        <label for="emp-status">Status</label>
-                        <select id="emp-status" name="emp_status" class="cms-emp-form-control">
-                            <option value="active" <?php selected($employee['status'], 'active'); ?>>Active</option>
-                            <option value="inactive" <?php selected($employee['status'], 'inactive'); ?>>Inactive</option>
-                        </select>
+                        <small class="cms-emp-file-note">Upload new PDF only if you want to replace the current file</small>
                     </div>
                 </div>
             </div>
             
+            <!-- Progress Bar -->
+            <div class="cms-emp-progress" id="update-progress">
+                <div class="cms-emp-progress-bar" id="update-progress-bar"></div>
+            </div>
+            
+            <!-- Form Actions -->
             <div class="cms-emp-update-footer">
-                <a href="<?php echo esc_url(remove_query_arg('employee_id', wp_get_referer())); ?>" class="cms-emp-cancel-button">
+                <a href="<?php echo esc_url(remove_query_arg('employee_id', wp_get_referer() ?: home_url('employee-list'))); ?>" class="cms-emp-cancel-button">
                     Cancel
                 </a>
-                <button type="submit" name="cms_emp_update_submit" class="cms-emp-update-button">
+                <button type="submit" name="cms_emp_update_submit" class="cms-emp-update-button" id="emp-update-btn">
                     💾 <?php echo esc_html($atts['button_text']); ?>
                 </button>
             </div>
@@ -714,21 +1140,27 @@ function cms_update_employee_shortcode($atts) {
     </div>
     
     <script>
-    jQuery(document).ready(function($) {
-        $('#emp-cnic').on('input', function() {
-            var value = $(this).val().replace(/[^0-9]/g, '');
-            if (value.length > 5) {
-                value = value.substring(0, 5) + '-' + value.substring(5);
-            }
-            if (value.length > 13) {
-                value = value.substring(0, 13) + '-' + value.substring(13, 14);
-            }
-            $(this).val(value);
-        });
+    function cmsOpenPDF(url) {
+        if (!url || url === '' || url === '#') {
+            alert('PDF file not found');
+            return false;
+        }
         
+        if (url.startsWith('http') || url.startsWith('/')) {
+            window.open(url, '_blank');
+            return false;
+        } else {
+            alert('Invalid PDF file path');
+            return false;
+        }
+    }
+    
+    jQuery(document).ready(function($) {
+        // Form validation
         $('#cms-emp-update-form').on('submit', function(e) {
             var isValid = true;
             
+            // Check required fields
             $(this).find('[required]').each(function() {
                 if (!$(this).val()) {
                     $(this).addClass('error');
@@ -738,10 +1170,27 @@ function cms_update_employee_shortcode($atts) {
                 }
             });
             
+            // Email validation
             var email = $('#emp-email');
             var emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             if (email.val() && !emailPattern.test(email.val())) {
                 email.addClass('error');
+                isValid = false;
+            }
+            
+            // Phone number validation
+            var contact = $('#emp-contact');
+            var contactPattern = /^[0-9]{10,15}$/;
+            if (contact.val() && !contactPattern.test(contact.val())) {
+                contact.addClass('error');
+                isValid = false;
+            }
+            
+            // Date validation
+            var joiningDate = $('#emp-joining-date').val();
+            var terminationDate = $('#emp-termination-date').val();
+            if (terminationDate && joiningDate && terminationDate < joiningDate) {
+                alert('Termination date cannot be before joining date');
                 isValid = false;
             }
             
@@ -751,7 +1200,43 @@ function cms_update_employee_shortcode($atts) {
                 return false;
             }
             
-            $(this).find('.cms-emp-update-button').text('Updating...').prop('disabled', true);
+            // Show progress bar
+            $('#update-progress').show();
+            var progress = 0;
+            var interval = setInterval(function() {
+                progress += 10;
+                $('#update-progress-bar').css('width', progress + '%');
+                if (progress >= 100) {
+                    clearInterval(interval);
+                }
+            }, 200);
+            
+            $('#emp-update-btn').text('Updating...').prop('disabled', true);
+        });
+        
+        // Remove error class on input
+        $('.cms-emp-form-control').on('input', function() {
+            $(this).removeClass('error');
+        });
+        
+        // File size validation
+        $('input[type="file"]').on('change', function() {
+            var file = this.files[0];
+            if (file && file.size > 5 * 1048576) { // 5MB
+                alert('File size must be less than 5MB');
+                $(this).val('');
+            }
+        });
+        
+        // Auto-calculate updated wage
+        $('#emp-basic-wage, #emp-increment-percentage').on('input', function() {
+            var basicWage = parseFloat($('#emp-basic-wage').val()) || 0;
+            var incrementPercent = parseFloat($('#emp-increment-percentage').val()) || 0;
+            
+            if (basicWage > 0 && incrementPercent > 0) {
+                var updatedWage = basicWage + (basicWage * incrementPercent / 100);
+                // Optional: Display calculated wage
+            }
         });
     });
     </script>
@@ -763,32 +1248,59 @@ function cms_update_employee_shortcode($atts) {
 add_shortcode('cms_update_employee', 'cms_update_employee_shortcode');
 add_shortcode(CMS_EMPLOYEE_UPDATE_SHORTCODE, 'cms_update_employee_shortcode');
 
-function get_cms_employee_by_id($id) {
-    $mock_employees = get_cms_mock_employee_data();
+/**
+ * Handle file uploads during update
+ */
+function cms_handle_update_file_uploads($username) {
+    $upload_dir = wp_upload_dir();
+    $cms_upload_dir = $upload_dir['basedir'] . '/cms-employee-docs/';
     
-    foreach ($mock_employees as $employee) {
-        if ($employee['id'] == $id) {
-            return $employee;
+    // Create directory if not exists
+    if (!file_exists($cms_upload_dir)) {
+        wp_mkdir_p($cms_upload_dir);
+        
+        // Add .htaccess to protect directory (but allow PDF access)
+        $htaccess_content = "Order Deny,Allow\nDeny from all\n<FilesMatch '\\.pdf$'>\nAllow from all\n</FilesMatch>";
+        @file_put_contents($cms_upload_dir . '.htaccess', $htaccess_content);
+        
+        // Add index.php for security
+        @file_put_contents($cms_upload_dir . 'index.php', '<?php // Silence is golden');
+    }
+    
+    $uploaded_files = [];
+    $file_fields = [
+        'emp_cnic_pdf' => 'cnic_pdf',
+        'emp_char_cert_pdf' => 'char_cert_pdf',
+        'emp_letter_pdf' => 'emp_letter_pdf'
+    ];
+    
+    foreach ($file_fields as $field => $db_field) {
+        if (isset($_FILES[$field]) && $_FILES[$field]['error'] === UPLOAD_ERR_OK) {
+            $file = $_FILES[$field];
+            
+            // Validate file type
+            $file_type = wp_check_filetype($file['name']);
+            if ($file_type['ext'] !== 'pdf') {
+                continue; // Skip invalid files
+            }
+            
+            // Validate file size (5MB max)
+            if ($file['size'] > 5 * 1048576) {
+                continue; // Skip oversized files
+            }
+            
+            // Generate unique filename with username prefix
+            $file_info = pathinfo($file['name']);
+            $filename = $username . '_' . $db_field . '_' . uniqid() . '.pdf';
+            $filepath = $cms_upload_dir . $filename;
+            
+            if (move_uploaded_file($file['tmp_name'], $filepath)) {
+                // Store the full server path
+                $uploaded_files[$db_field] = $filepath;
+            }
         }
     }
     
-    return null;
+    return $uploaded_files;
 }
 
-function cms_handle_employee_update() {
-    if (isset($_POST['cms_emp_update_submit']) && isset($_POST['cms_emp_update_action']) && $_POST['cms_emp_update_action'] === 'update_employee') {
-        
-        if (!isset($_POST['cms_emp_update_nonce']) || !wp_verify_nonce($_POST['cms_emp_update_nonce'], 'cms_employee_update')) {
-            wp_redirect(add_query_arg('update', 'error', wp_get_referer()));
-            exit;
-        }
-        
-        $employee_id = intval($_POST['cms_employee_id']);
-        
-        wp_redirect(add_query_arg('update', 'success', wp_get_referer()));
-        exit;
-    }
-}
-add_action('init', 'cms_handle_employee_update');
-
-?>

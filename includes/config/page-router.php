@@ -348,5 +348,3 @@ function cms_flush_rewrites_on_activation() {
     flush_rewrite_rules();
     update_option('cms_permalinks_flushed', true);
 }
-
-// REMOVED: The duplicate get_employee_by_id function that was causing the fatal error

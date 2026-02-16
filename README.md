@@ -5,11 +5,11 @@ I want to create a custom management system in wordpress with PHP/HTML code with
 
 Role 1. Main Admin - with access to user passwords as well
 - CRUD Main Admin   	- UI Done
-- CRUD Admin		- UI Done
-- CRUD Employee		- UI Done
-- CRUD CorpAccount	- UI Done
+- CRUD Admin		    - UI Done
+- CRUD Employee		    - UI Done
+- CRUD CorpAccount	    - UI Done
 - Assign Employee to CorpAccount - UI Done
-- Shift Management - UI Done
+- Shift Management      - UI Done
 - View Employees Shift History 
 - Approve/Reject Requests
 - History of Requests
@@ -18,9 +18,9 @@ Role 1. Main Admin - with access to user passwords as well
 - Employee salary lists(1-15th of month, 16th to end of month) + hours worked + hourly wage
 
 Role 2. Admin
-- CRUD Employee		- UI Done
+- CRUD Employee		    - UI Done
 - Assign Employee to CorpAccount - UI Done
-- Shift Management - UI Done
+- Shift Management      - UI Done
 - View Employees Shift History
 - Approve/Reject Requests
 - History of Requests
@@ -30,8 +30,8 @@ Role 2. Admin
 Role 3. Employee
 - view employee details
 - Login Shift/ LogOut Shift -- can do this 30 minutes before or after shift time only. and shows shift hours/timing.
-- Shift History 	- UI Done
-- Early/late Login/logout Request
+- Shift History 	    - UI Done
+- Early/late Login/logout Request - UI Done
 - history of requests
 - salary history
 - messages list - can mark them as read
