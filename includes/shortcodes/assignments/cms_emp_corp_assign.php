@@ -1,7 +1,7 @@
 <?php
 /**
  * CMS Employee-Corporate Account Assignment Shortcode
- * Display employees and their assigned corporate accounts
+ * Display employees and their assigned corporate accounts from database
  * 
  * Fields: id, username_emp, username_corp_acc
  * 
@@ -23,6 +23,8 @@ if (!defined('CMS_EMP_CORP_ASSIGN_SHORTCODE')) {
  * Employee Corporate Account Assignment Shortcode
  */
 function cms_emp_corp_assign_shortcode($atts) {
+    global $wpdb;
+    
     // Parse attributes
     $atts = shortcode_atts(
         array(
@@ -40,12 +42,50 @@ function cms_emp_corp_assign_shortcode($atts) {
         'cms_emp_corp_assign'
     );
     
-    ob_start();
+    // Get current page for pagination
+    $current_page = isset($_GET['assign_page']) ? max(1, intval($_GET['assign_page'])) : 1;
+    $items_per_page = intval($atts['items_per_page']);
+    $offset = ($current_page - 1) * $items_per_page;
     
-    // Get mock data
-    $employees = get_cms_mock_employee_data();
-    $corp_accounts = get_cms_mock_corp_data();
-    $assignments = get_cms_mock_emp_corp_assignments();
+    // Table names
+    $table_employee = $wpdb->prefix . 'cms_employee';
+    $table_corp_acc = $wpdb->prefix . 'cms_corp_acc';
+    $table_assignments = $wpdb->prefix . 'cms_emp_corp_assign';
+    
+    // Get total employees count for pagination (only active employees)
+    $total_employees = $wpdb->get_var("SELECT COUNT(*) FROM $table_employee WHERE termination_date IS NULL");
+    $total_pages = ceil($total_employees / $items_per_page);
+    
+    // Get employees with pagination
+    $employees = $wpdb->get_results($wpdb->prepare(
+        "SELECT * FROM $table_employee WHERE termination_date IS NULL ORDER BY name ASC LIMIT %d OFFSET %d",
+        $items_per_page,
+        $offset
+    ), ARRAY_A);
+    
+    // Get all corporate accounts
+    $corp_accounts = $wpdb->get_results("SELECT * FROM $table_corp_acc ORDER BY company_name ASC", ARRAY_A);
+    
+    // Get all assignments - FIXED: using assigned_at instead of created_at
+    $assignments = $wpdb->get_results("SELECT * FROM $table_assignments ORDER BY assigned_at DESC", ARRAY_A);
+    
+    // Create lookup arrays for quick access
+    $corp_lookup = array();
+    foreach ($corp_accounts as $corp) {
+        $corp_lookup[$corp['username']] = $corp;
+    }
+    
+    // Create assignments lookup by employee
+    $assignments_by_emp = array();
+    foreach ($assignments as $assignment) {
+        $emp_username = $assignment['username_emp'];
+        if (!isset($assignments_by_emp[$emp_username])) {
+            $assignments_by_emp[$emp_username] = array();
+        }
+        $assignments_by_emp[$emp_username][] = $assignment;
+    }
+    
+    ob_start();
     ?>
     
     <style>
@@ -702,25 +742,25 @@ function cms_emp_corp_assign_shortcode($atts) {
         </div>
         
         <?php
-        // Display messages
-        if (isset($_GET['assign']) && $_GET['assign'] === 'success') {
-            echo '<div class="cms-assign-message success">Assignment completed successfully!</div>';
-        }
-        if (isset($_GET['assign']) && $_GET['assign'] === 'unassign_success') {
-            echo '<div class="cms-assign-message success">Corporate account unassigned successfully!</div>';
-        }
-        if (isset($_GET['assign']) && $_GET['assign'] === 'error') {
-            echo '<div class="cms-assign-message error">Operation failed. Please try again.</div>';
-        }
-        if (isset($_GET['assign']) && $_GET['assign'] === 'exists') {
-            echo '<div class="cms-assign-message info">This corporate account is already assigned to the employee.</div>';
+        // Display messages from URL parameters
+        if (isset($_GET['assign_msg'])) {
+            $msg = sanitize_text_field($_GET['assign_msg']);
+            if ($msg === 'success') {
+                echo '<div class="cms-assign-message success">' . esc_html__('Assignment completed successfully!', 'cms') . '</div>';
+            } elseif ($msg === 'unassign_success') {
+                echo '<div class="cms-assign-message success">' . esc_html__('Corporate account unassigned successfully!', 'cms') . '</div>';
+            } elseif ($msg === 'error') {
+                echo '<div class="cms-assign-message error">' . esc_html__('Operation failed. Please try again.', 'cms') . '</div>';
+            } elseif ($msg === 'exists') {
+                echo '<div class="cms-assign-message info">' . esc_html__('This corporate account is already assigned to the employee.', 'cms') . '</div>';
+            }
         }
         ?>
         
         <!-- Statistics Cards -->
         <div class="cms-assign-stats">
             <div class="cms-assign-stat-card">
-                <div class="cms-assign-stat-number"><?php echo count($employees); ?></div>
+                <div class="cms-assign-stat-number"><?php echo intval($total_employees); ?></div>
                 <div class="cms-assign-stat-label">Total Employees</div>
             </div>
             <div class="cms-assign-stat-card">
@@ -734,10 +774,8 @@ function cms_emp_corp_assign_shortcode($atts) {
             <div class="cms-assign-stat-card">
                 <div class="cms-assign-stat-number">
                     <?php 
-                    $employees_with_assignments = count(array_filter($employees, function($emp) use ($assignments) {
-                        return array_filter($assignments, function($ass) use ($emp) {
-                            return $ass['username_emp'] === $emp['username'];
-                        });
+                    $employees_with_assignments = count(array_filter($employees, function($emp) use ($assignments_by_emp) {
+                        return isset($assignments_by_emp[$emp['username']]) && !empty($assignments_by_emp[$emp['username']]);
                     }));
                     echo $employees_with_assignments;
                     ?>
@@ -759,12 +797,15 @@ function cms_emp_corp_assign_shortcode($atts) {
             <div>
                 <select id="cms-assign-filter-team" class="cms-assign-filter-select" onchange="filterAssignments()">
                     <option value="">All Teams</option>
-                    <option value="IT">IT</option>
-                    <option value="HR">HR</option>
-                    <option value="Finance">Finance</option>
-                    <option value="Marketing">Marketing</option>
-                    <option value="Sales">Sales</option>
-                    <option value="Operations">Operations</option>
+                    <?php
+                    // Get unique teams from employees
+                    $teams = array_unique(array_column($employees, 'corp_team'));
+                    foreach ($teams as $team) {
+                        if (!empty($team)) {
+                            echo '<option value="' . esc_attr($team) . '">' . esc_html($team) . '</option>';
+                        }
+                    }
+                    ?>
                 </select>
                 
                 <select id="cms-assign-filter-status" class="cms-assign-filter-select" onchange="filterAssignments()">
@@ -779,27 +820,17 @@ function cms_emp_corp_assign_shortcode($atts) {
         
         <!-- Employee Assignment Grid -->
         <div class="cms-assign-grid" id="cms-assign-grid">
-            <?php 
-            $display_count = 0;
-            foreach ($employees as $employee): 
+            <?php foreach ($employees as $employee): 
                 // Get assignments for this employee
-                $emp_assignments = array_filter($assignments, function($ass) use ($employee) {
-                    return $ass['username_emp'] === $employee['username'];
-                });
+                $emp_assignments = isset($assignments_by_emp[$employee['username']]) ? $assignments_by_emp[$employee['username']] : array();
                 
                 // Get assigned corporate account details
                 $assigned_corps = array();
                 foreach ($emp_assignments as $assignment) {
-                    foreach ($corp_accounts as $corp) {
-                        if ($corp['username'] === $assignment['username_corp_acc']) {
-                            $assigned_corps[] = $corp;
-                            break;
-                        }
+                    if (isset($corp_lookup[$assignment['username_corp_acc']])) {
+                        $assigned_corps[] = $corp_lookup[$assignment['username_corp_acc']];
                     }
                 }
-                
-                $display_count++;
-                if ($display_count > $atts['items_per_page']) break;
             ?>
             <div class="cms-assign-card" data-employee-id="<?php echo esc_attr($employee['id']); ?>" data-employee-name="<?php echo esc_attr(strtolower($employee['name'])); ?>" data-employee-team="<?php echo esc_attr($employee['corp_team']); ?>" data-assigned-count="<?php echo count($assigned_corps); ?>">
                 <div class="cms-assign-card-header">
@@ -857,13 +888,9 @@ function cms_emp_corp_assign_shortcode($atts) {
                                 <option value="">Select corporate account</option>
                                 <?php 
                                 // Filter out already assigned corps
-                                $available_corps = array_filter($corp_accounts, function($corp) use ($assigned_corps) {
-                                    foreach ($assigned_corps as $assigned) {
-                                        if ($assigned['username'] === $corp['username']) {
-                                            return false;
-                                        }
-                                    }
-                                    return true;
+                                $assigned_usernames = array_column($assigned_corps, 'username');
+                                $available_corps = array_filter($corp_accounts, function($corp) use ($assigned_usernames) {
+                                    return !in_array($corp['username'], $assigned_usernames);
                                 });
                                 ?>
                                 <?php foreach ($available_corps as $corp): ?>
@@ -884,13 +911,40 @@ function cms_emp_corp_assign_shortcode($atts) {
         </div>
         
         <!-- Pagination -->
+        <?php if ($total_pages > 1): ?>
         <div class="cms-assign-pagination">
-            <a href="#" class="cms-assign-page-link">« Previous</a>
-            <a href="#" class="cms-assign-page-link active">1</a>
-            <a href="#" class="cms-assign-page-link">2</a>
-            <a href="#" class="cms-assign-page-link">3</a>
-            <a href="#" class="cms-assign-page-link">Next »</a>
+            <?php
+            // Build pagination links
+            $base_url = remove_query_arg('assign_page');
+            
+            // Previous link
+            if ($current_page > 1) {
+                $prev_url = add_query_arg('assign_page', $current_page - 1, $base_url);
+                echo '<a href="' . esc_url($prev_url) . '" class="cms-assign-page-link">« Previous</a>';
+            } else {
+                echo '<span class="cms-assign-page-link disabled">« Previous</span>';
+            }
+            
+            // Page numbers
+            $start_page = max(1, $current_page - 2);
+            $end_page = min($total_pages, $current_page + 2);
+            
+            for ($i = $start_page; $i <= $end_page; $i++) {
+                $page_url = add_query_arg('assign_page', $i, $base_url);
+                $active_class = ($i == $current_page) ? 'active' : '';
+                echo '<a href="' . esc_url($page_url) . '" class="cms-assign-page-link ' . $active_class . '">' . $i . '</a>';
+            }
+            
+            // Next link
+            if ($current_page < $total_pages) {
+                $next_url = add_query_arg('assign_page', $current_page + 1, $base_url);
+                echo '<a href="' . esc_url($next_url) . '" class="cms-assign-page-link">Next »</a>';
+            } else {
+                echo '<span class="cms-assign-page-link disabled">Next »</span>';
+            }
+            ?>
         </div>
+        <?php endif; ?>
     </div>
     
     <!-- Unassign Confirmation Modal -->
@@ -933,13 +987,27 @@ function cms_emp_corp_assign_shortcode($atts) {
             return;
         }
         
-        if (confirm('Assign ' + corpName + ' to this employee?')) {
-            // Simulate AJAX assignment
-            var button = document.getElementById('assign-btn-' + empId);
-            button.disabled = true;
-            button.textContent = 'Assigning...';
+        // AJAX request to assign
+        var button = document.getElementById('assign-btn-' + empId);
+        button.disabled = true;
+        button.textContent = 'Assigning...';
+        
+        var formData = new FormData();
+        formData.append('action', 'cms_assign_corporate_account');
+        formData.append('emp_username', empUsername);
+        formData.append('corp_username', corpUsername);
+        formData.append('nonce', '<?php echo wp_create_nonce('cms_assign_nonce'); ?>');
+        
+        fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            button.disabled = false;
+            button.textContent = '+ Assign';
             
-            setTimeout(function() {
+            if (data.success) {
                 // Add to list
                 var corpList = document.getElementById('corp-list-' + empId);
                 var noDataDiv = corpList.querySelector('.cms-assign-no-corp');
@@ -967,18 +1035,26 @@ function cms_emp_corp_assign_shortcode($atts) {
                 // Remove from select
                 select.remove(select.selectedIndex);
                 
-                // Update button
-                button.disabled = true;
-                button.textContent = '+ Assign';
-                
                 // Update count badge
                 var countBadge = document.querySelector(`[data-employee-id="${empId}"] .cms-assign-count-badge`);
                 var currentCount = parseInt(countBadge.textContent);
                 countBadge.textContent = currentCount + 1;
                 
+                // Update data attribute
+                var card = document.querySelector(`[data-employee-id="${empId}"]`);
+                card.setAttribute('data-assigned-count', currentCount + 1);
+                
                 alert('Corporate account assigned successfully!');
-            }, 1000);
-        }
+            } else {
+                alert('Error: ' + data.data);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('An error occurred. Please try again.');
+            button.disabled = false;
+            button.textContent = '+ Assign';
+        });
     }
     
     function unassignCorp(empUsername, corpUsername, empId) {
@@ -1001,46 +1077,71 @@ function cms_emp_corp_assign_shortcode($atts) {
             button.disabled = true;
             button.textContent = 'Unassigning...';
             
-            setTimeout(function() {
-                // Remove from list
-                var corpList = document.getElementById('corp-list-' + currentEmpId);
-                var items = corpList.getElementsByClassName('cms-assign-corp-item');
-                
-                for (var i = 0; i < items.length; i++) {
-                    if (items[i].getAttribute('data-assignment-id') === currentEmpUsername + '_' + currentCorpUsername) {
-                        var corpName = items[i].querySelector('.cms-assign-corp-name').textContent;
-                        var corpDisplay = corpName + ' (@' + currentCorpUsername + ')';
-                        
-                        // Add back to select
-                        var select = document.getElementById('corp-select-' + currentEmpId);
-                        var option = document.createElement('option');
-                        option.value = currentCorpUsername;
-                        option.textContent = corpDisplay;
-                        select.appendChild(option);
-                        
-                        // Remove item
-                        items[i].remove();
-                        break;
-                    }
-                }
-                
-                // Check if list is empty
-                if (corpList.children.length === 0) {
-                    corpList.innerHTML = '<div class="cms-assign-no-corp">No corporate accounts assigned</div>';
-                }
-                
-                // Update count badge
-                var countBadge = document.querySelector(`[data-employee-id="${currentEmpId}"] .cms-assign-count-badge`);
-                var currentCount = parseInt(countBadge.textContent);
-                countBadge.textContent = currentCount - 1;
-                
-                // Close modal
-                closeUnassignModal();
+            var formData = new FormData();
+            formData.append('action', 'cms_unassign_corporate_account');
+            formData.append('emp_username', currentEmpUsername);
+            formData.append('corp_username', currentCorpUsername);
+            formData.append('nonce', '<?php echo wp_create_nonce('cms_unassign_nonce'); ?>');
+            
+            fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
                 button.disabled = false;
                 button.textContent = 'Unassign';
+                closeUnassignModal();
                 
-                alert('Corporate account unassigned successfully!');
-            }, 1000);
+                if (data.success) {
+                    // Remove from list
+                    var corpList = document.getElementById('corp-list-' + currentEmpId);
+                    var items = corpList.getElementsByClassName('cms-assign-corp-item');
+                    
+                    for (var i = 0; i < items.length; i++) {
+                        if (items[i].getAttribute('data-assignment-id') === currentEmpUsername + '_' + currentCorpUsername) {
+                            var corpName = items[i].querySelector('.cms-assign-corp-name').textContent;
+                            var corpDisplay = corpName + ' (@' + currentCorpUsername + ')';
+                            
+                            // Add back to select
+                            var select = document.getElementById('corp-select-' + currentEmpId);
+                            var option = document.createElement('option');
+                            option.value = currentCorpUsername;
+                            option.textContent = corpDisplay;
+                            select.appendChild(option);
+                            
+                            // Remove item
+                            items[i].remove();
+                            break;
+                        }
+                    }
+                    
+                    // Check if list is empty
+                    if (corpList.children.length === 0) {
+                        corpList.innerHTML = '<div class="cms-assign-no-corp">No corporate accounts assigned</div>';
+                    }
+                    
+                    // Update count badge
+                    var countBadge = document.querySelector(`[data-employee-id="${currentEmpId}"] .cms-assign-count-badge`);
+                    var currentCount = parseInt(countBadge.textContent);
+                    countBadge.textContent = currentCount - 1;
+                    
+                    // Update data attribute
+                    var card = document.querySelector(`[data-employee-id="${currentEmpId}"]`);
+                    card.setAttribute('data-assigned-count', currentCount - 1);
+                    
+                    alert('Corporate account unassigned successfully!');
+                } else {
+                    alert('Error: ' + data.data);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred. Please try again.');
+                button.disabled = false;
+                button.textContent = 'Unassign';
+                closeUnassignModal();
+            });
         }
     });
     
@@ -1066,7 +1167,7 @@ function cms_emp_corp_assign_shortcode($atts) {
             // Team filter
             if (teamFilter && showCard) {
                 var employeeTeam = card.getAttribute('data-employee-team') || '';
-                if (employeeTeam.toLowerCase() !== teamFilter.toLowerCase()) {
+                if (employeeTeam !== teamFilter) {
                     showCard = false;
                 }
             }
@@ -1103,86 +1204,89 @@ add_shortcode('cms_emp_corp_assign', 'cms_emp_corp_assign_shortcode');
 add_shortcode(CMS_EMP_CORP_ASSIGN_SHORTCODE, 'cms_emp_corp_assign_shortcode');
 
 /**
- * Get mock employee-corporate assignments
+ * AJAX handler for assigning corporate account to employee
  */
-function get_cms_mock_emp_corp_assignments() {
-    return array(
-        // Format: id, username_emp, username_corp_acc
+function cms_ajax_assign_corporate_account() {
+    global $wpdb;
+    
+    // Verify nonce
+    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'cms_assign_nonce')) {
+        wp_send_json_error('Security check failed');
+    }
+    
+    if (!isset($_POST['emp_username']) || !isset($_POST['corp_username'])) {
+        wp_send_json_error('Missing parameters');
+    }
+    
+    $emp_username = sanitize_user($_POST['emp_username']);
+    $corp_username = sanitize_user($_POST['corp_username']);
+    
+    $table_assignments = $wpdb->prefix . 'cms_emp_corp_assign';
+    
+    // Check if assignment already exists
+    $exists = $wpdb->get_var($wpdb->prepare(
+        "SELECT id FROM $table_assignments WHERE username_emp = %s AND username_corp_acc = %s",
+        $emp_username,
+        $corp_username
+    ));
+    
+    if ($exists) {
+        wp_send_json_error('Assignment already exists');
+    }
+    
+    // Insert new assignment - FIXED: using assigned_at instead of created_at
+    $result = $wpdb->insert(
+        $table_assignments,
         array(
-            'id' => 1,
-            'username_emp' => 'john_employee',
-            'username_corp_acc' => 'techcorp'
+            'username_emp' => $emp_username,
+            'username_corp_acc' => $corp_username,
+            'assigned_at' => current_time('mysql')
         ),
-        array(
-            'id' => 2,
-            'username_emp' => 'john_employee',
-            'username_corp_acc' => 'innovatetech'
-        ),
-        array(
-            'id' => 3,
-            'username_emp' => 'emily_jones',
-            'username_corp_acc' => 'globalfinance'
-        ),
-        array(
-            'id' => 4,
-            'username_emp' => 'david_miller',
-            'username_corp_acc' => 'healthcare_plus'
-        ),
-        array(
-            'id' => 5,
-            'username_emp' => 'sarah_ahmed',
-            'username_corp_acc' => 'green_retail'
-        ),
-        array(
-            'id' => 6,
-            'username_emp' => 'sarah_ahmed',
-            'username_corp_acc' => 'prestige_auto'
-        ),
-        array(
-            'id' => 7,
-            'username_emp' => 'michael_brown',
-            'username_corp_acc' => 'eduworld'
-        )
+        array('%s', '%s', '%s')
     );
-}
-
-/**
- * Handle assignment form submission (to be implemented with actual DB)
- */
-function cms_handle_emp_corp_assignment() {
-    if (isset($_POST['cms_assign_submit'])) {
-        // Verify nonce
-        if (!isset($_POST['cms_assign_nonce']) || !wp_verify_nonce($_POST['cms_assign_nonce'], 'cms_emp_corp_assignment')) {
-            wp_redirect(add_query_arg('assign', 'error', wp_get_referer()));
-            exit;
-        }
-        
-        $action = sanitize_text_field($_POST['cms_assign_action']);
-        
-        if ($action === 'assign') {
-            $emp_username = sanitize_user($_POST['emp_username']);
-            $corp_username = sanitize_user($_POST['corp_username']);
-            
-            // Here you would insert into database
-            // $wpdb->insert('emp_corp_assignments', array(
-            //     'username_emp' => $emp_username,
-            //     'username_corp_acc' => $corp_username
-            // ));
-            
-            wp_redirect(add_query_arg('assign', 'success', wp_get_referer()));
-            exit;
-            
-        } elseif ($action === 'unassign') {
-            $assignment_id = intval($_POST['assignment_id']);
-            
-            // Here you would delete from database
-            // $wpdb->delete('emp_corp_assignments', array('id' => $assignment_id));
-            
-            wp_redirect(add_query_arg('assign', 'unassign_success', wp_get_referer()));
-            exit;
-        }
+    
+    if ($result) {
+        wp_send_json_success('Assignment created successfully');
+    } else {
+        wp_send_json_error('Database error: ' . $wpdb->last_error);
     }
 }
-add_action('init', 'cms_handle_emp_corp_assignment');
+add_action('wp_ajax_cms_assign_corporate_account', 'cms_ajax_assign_corporate_account');
 
-?>
+/**
+ * AJAX handler for unassigning corporate account from employee
+ */
+function cms_ajax_unassign_corporate_account() {
+    global $wpdb;
+    
+    // Verify nonce
+    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'cms_unassign_nonce')) {
+        wp_send_json_error('Security check failed');
+    }
+    
+    if (!isset($_POST['emp_username']) || !isset($_POST['corp_username'])) {
+        wp_send_json_error('Missing parameters');
+    }
+    
+    $emp_username = sanitize_user($_POST['emp_username']);
+    $corp_username = sanitize_user($_POST['corp_username']);
+    
+    $table_assignments = $wpdb->prefix . 'cms_emp_corp_assign';
+    
+    // Delete assignment
+    $result = $wpdb->delete(
+        $table_assignments,
+        array(
+            'username_emp' => $emp_username,
+            'username_corp_acc' => $corp_username
+        ),
+        array('%s', '%s')
+    );
+    
+    if ($result) {
+        wp_send_json_success('Assignment deleted successfully');
+    } else {
+        wp_send_json_error('Database error: ' . $wpdb->last_error);
+    }
+}
+add_action('wp_ajax_cms_unassign_corporate_account', 'cms_ajax_unassign_corporate_account');
