@@ -163,52 +163,61 @@ function cms_create_database_tables() {
         INDEX idx_email (email)
     ) $charset_collate;";
     
-    // 7. SHIFT_HISTORY table
-    $sql_shift_history = "CREATE TABLE IF NOT EXISTS $table_shift_history (
-        id INT(11) NOT NULL AUTO_INCREMENT,
-        username VARCHAR(50) NOT NULL,
-        date DATE NOT NULL,
-        actual_login_time TIME NULL,
-        actual_logout_time TIME NULL,
-        actual_hours INT(11) NULL,
-        actual_mins INT(11) NULL,
-        counted_login_time TIME NULL,
-        counted_logout_time TIME NULL,
-        counted_hours INT(11) NULL,
-        counted_mins INT(11) NULL,
-        status ENUM('active', 'completed', 'missed') DEFAULT 'active',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        FOREIGN KEY (username) REFERENCES $table_employee(username) ON DELETE CASCADE,
-        UNIQUE KEY unique_shift (username, date),
-        INDEX idx_username (username),
-        INDEX idx_date (date),
-        INDEX idx_status (status)
-    ) $charset_collate;";
-    
-    // 8. REQUESTS table
-    $sql_requests = "CREATE TABLE IF NOT EXISTS $table_requests (
-        id INT(11) NOT NULL AUTO_INCREMENT,
-        username VARCHAR(50) NOT NULL,
-        type ENUM('late', 'early', 'absent', 'other') NOT NULL,
-        request TEXT NOT NULL,
-        date DATE NOT NULL,
-        late_time TIME NULL,
-        time_allowed VARCHAR(20) NULL,
-        status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
-        admin_username VARCHAR(50) NULL,
-        admin_notes TEXT NULL,
-        processed_at DATETIME NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        FOREIGN KEY (username) REFERENCES $table_employee(username) ON DELETE CASCADE,
-        FOREIGN KEY (admin_username) REFERENCES $table_admin(username) ON DELETE SET NULL,
-        INDEX idx_username (username),
-        INDEX idx_status (status),
-        INDEX idx_date (date)
-    ) $charset_collate;";
-    
+    // 7. SHIFT_HISTORY table (UPDATED)
+$sql_shift_history = "CREATE TABLE IF NOT EXISTS $table_shift_history (
+    id INT(11) NOT NULL AUTO_INCREMENT,
+    shift_management_id INT(11) NOT NULL,
+    username VARCHAR(50) NOT NULL,
+    date DATE NOT NULL,
+    shift_start_time TIME NOT NULL,
+    shift_end_time TIME NOT NULL,
+    actual_login_time TIME NULL,
+    actual_logout_time TIME NULL,
+    actual_hours INT(11) NULL,
+    actual_mins INT(11) NULL,
+    counted_login_time TIME NULL,
+    counted_logout_time TIME NULL,
+    counted_hours INT(11) NULL,
+    counted_mins INT(11) NULL,
+    status ENUM('active', 'completed', 'missed') DEFAULT 'active',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    FOREIGN KEY (shift_management_id) REFERENCES $table_shift_management(id) ON DELETE CASCADE,
+    FOREIGN KEY (username) REFERENCES $table_employee(username) ON DELETE CASCADE,
+    UNIQUE KEY unique_shift_instance (shift_management_id, date),
+    INDEX idx_username (username),
+    INDEX idx_date (date),
+    INDEX idx_status (status)
+) $charset_collate;";
+    // 8. REQUESTS table (UPDATED)
+$sql_requests = "CREATE TABLE IF NOT EXISTS $table_requests (
+    id INT(11) NOT NULL AUTO_INCREMENT,
+    shift_history_id INT(11) NOT NULL,
+    username VARCHAR(50) NOT NULL,
+    type ENUM('late_login', 'early_login', 'late_logout', 'early_logout', 'absent', 'other') NOT NULL,
+    request TEXT NOT NULL,
+    date DATE NOT NULL,
+    deviation_minutes INT(11) NOT NULL COMMENT 'Minutes deviation from scheduled time',
+    scheduled_time TIME NOT NULL,
+    actual_time TIME NOT NULL,
+    details TEXT NULL COMMENT 'User can fill this later',
+    status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+    admin_username VARCHAR(50) NULL,
+    admin_notes TEXT NULL,
+    processed_at DATETIME NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    FOREIGN KEY (shift_history_id) REFERENCES $table_shift_history(id) ON DELETE CASCADE,
+    FOREIGN KEY (username) REFERENCES $table_employee(username) ON DELETE CASCADE,
+    FOREIGN KEY (admin_username) REFERENCES $table_admin(username) ON DELETE SET NULL,
+    UNIQUE KEY unique_shift_request (shift_history_id, type),
+    INDEX idx_username (username),
+    INDEX idx_status (status),
+    INDEX idx_date (date),
+    INDEX idx_type (type)
+) $charset_collate;";
     // 9. EMP_SALARY table
     $sql_emp_salary = "CREATE TABLE IF NOT EXISTS $table_emp_salary (
         id INT(11) NOT NULL AUTO_INCREMENT,
