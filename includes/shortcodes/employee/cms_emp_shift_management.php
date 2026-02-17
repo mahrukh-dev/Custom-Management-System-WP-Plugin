@@ -23,6 +23,8 @@ if (!defined('CMS_EMP_SHIFT_MANAGEMENT_SHORTCODE')) {
  * Employee Shift Management Shortcode
  */
 function cms_emp_shift_management_shortcode($atts) {
+    global $wpdb;
+    
     // Parse attributes
     $atts = shortcode_atts(
         array(
@@ -40,19 +42,25 @@ function cms_emp_shift_management_shortcode($atts) {
     );
     
     // Get current week dates
-    $week_dates = get_week_dates($atts['week_start']);
+    $week_offset = isset($_GET['week_offset']) ? intval($_GET['week_offset']) : 0;
+    $week_dates = get_week_dates($atts['week_start'], $week_offset);
     
-    // Get mock data
-    $employees = get_all_employees_for_shift();
-    $corp_accounts = get_all_corp_accounts_for_shift();
-    $shift_assignments = get_mock_shift_assignments();
+    // Get data from database
+    $employees = get_all_employees_from_db();
+    $corp_accounts = get_all_corp_accounts_from_db();
+    $shift_assignments = get_shift_assignments_from_db($week_dates['monday'], $week_dates['sunday']);
     
     ob_start();
+    
+    // Show success message if shifts were saved
+    if (isset($_GET['shifts_saved']) && $_GET['shifts_saved'] === '1') {
+        echo '<div class="notice notice-success" style="padding: 15px; margin: 20px 0; background: #d4edda; border-left: 4px solid #28a745; border-radius: 4px; font-weight: 500;">✅ Shifts saved successfully!</div>';
+    }
     
     // Check if we're in edit mode
     $edit_mode = isset($_GET['edit_mode']) && $_GET['edit_mode'] === '1';
     
-    if ($edit_mode) {
+    if ($edit_mode && $atts['allow_edit'] === 'yes') {
         echo render_editable_weekly_shift_table($atts, $employees, $corp_accounts, $shift_assignments, $week_dates);
     } else {
         echo render_weekly_shift_table($atts, $employees, $corp_accounts, $shift_assignments, $week_dates);
@@ -65,11 +73,144 @@ add_shortcode('cms_emp_shift_management', 'cms_emp_shift_management_shortcode');
 add_shortcode(CMS_EMP_SHIFT_MANAGEMENT_SHORTCODE, 'cms_emp_shift_management_shortcode');
 
 /**
+ * Check if shift is overnight (end time is less than start time)
+ */
+function is_overnight_shift($start_time, $end_time) {
+    return strtotime($end_time) < strtotime($start_time);
+}
+
+/**
+ * Format shift time with overnight indicator
+ */
+function format_shift_time($start_time, $end_time) {
+    $formatted = $start_time . ' - ' . $end_time;
+    if (is_overnight_shift($start_time, $end_time)) {
+        $formatted .= ' 🌙 (Next Day)';
+    }
+    return $formatted;
+}
+
+/**
+ * Get all employees from database
+ */
+function get_all_employees_from_db() {
+    global $wpdb;
+    $table = $wpdb->prefix . 'cms_employee';
+    
+    return $wpdb->get_results(
+        "SELECT username, name, position, corp_team 
+         FROM $table 
+         WHERE termination_date IS NULL 
+         ORDER BY name ASC",
+        ARRAY_A
+    );
+}
+
+/**
+ * Get all corporate accounts from database
+ */
+function get_all_corp_accounts_from_db() {
+    global $wpdb;
+    $table = $wpdb->prefix . 'cms_corp_acc';
+    
+    return $wpdb->get_results(
+        "SELECT username, company_name 
+         FROM $table 
+         WHERE status = 'active' 
+         ORDER BY company_name ASC",
+        ARRAY_A
+    );
+}
+
+/**
+ * Get shift assignments from database for date range
+ */
+function get_shift_assignments_from_db($start_date, $end_date) {
+    global $wpdb;
+    $table = $wpdb->prefix . 'cms_shift_management';
+    
+    return $wpdb->get_results($wpdb->prepare(
+        "SELECT * FROM $table 
+         WHERE date BETWEEN %s AND %s 
+         ORDER BY date ASC, shift_start_time ASC",
+        $start_date,
+        $end_date
+    ), ARRAY_A);
+}
+
+/**
+ * Get week dates based on offset
+ */
+function get_week_dates($week_start = 'monday', $week_offset = 0) {
+    $dates = [];
+    
+    // Map week start to PHP's format
+    $start_map = [
+        'monday' => 1,
+        'sunday' => 0,
+        'tuesday' => 2,
+        'wednesday' => 3,
+        'thursday' => 4,
+        'friday' => 5,
+        'saturday' => 6
+    ];
+    
+    $start_day = isset($start_map[$week_start]) ? $start_map[$week_start] : 1;
+    
+    // Calculate the start of the week
+    $today = new DateTime();
+    $today->setTime(0, 0, 0);
+    
+    // Get the day of week (0 = Sunday, 1 = Monday, etc.)
+    $day_of_week = (int)$today->format('w');
+    
+    // Calculate days to go back to reach week start
+    $days_to_subtract = ($day_of_week - $start_day + 7) % 7;
+    
+    // Apply week offset
+    $week_start_date = clone $today;
+    $week_start_date->modify("-{$days_to_subtract} days");
+    
+    if ($week_offset > 0) {
+        $week_start_date->modify("+{$week_offset} weeks");
+    } elseif ($week_offset < 0) {
+        $week_start_date->modify("{$week_offset} weeks");
+    }
+    
+    // Generate all week days
+    $days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    
+    foreach ($days as $index => $day) {
+        $date = clone $week_start_date;
+        $date->modify("+{$index} days");
+        $dates[$day] = $date->format('Y-m-d');
+    }
+    
+    return $dates;
+}
+
+/**
  * Render Weekly Shift Table (View Mode)
  */
 function render_weekly_shift_table($atts, $employees, $corp_accounts, $shift_assignments, $week_dates) {
-    $days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
     $day_labels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    
+    // Create lookup array for shifts by employee and date
+    $shifts_by_employee_date = [];
+    foreach ($shift_assignments as $shift) {
+        $key = $shift['emp_username'] . '_' . $shift['date'];
+        if (!isset($shifts_by_employee_date[$key])) {
+            $shifts_by_employee_date[$key] = [];
+        }
+        $shifts_by_employee_date[$key][] = $shift;
+    }
+    
+    // Create corp lookup
+    $corp_lookup = [];
+    foreach ($corp_accounts as $corp) {
+        $corp_lookup[$corp['username']] = $corp['company_name'];
+    }
+    
     ?>
     
     <style>
@@ -85,8 +226,9 @@ function render_weekly_shift_table($atts, $employees, $corp_accounts, $shift_ass
         --shift-info: #3b82f6;
         --shift-gray: #94a3b8;
         --shift-gray-light: #f1f5f9;
-        --shift-edit-bg: #fff3e0;
-        --shift-edit-border: #f39c12;
+        --shift-night-bg: #2d3748;
+        --shift-night-text: #e2e8f0;
+        --shift-night-border: #4a5568;
     }
     
     .cms-shift-container {
@@ -273,7 +415,7 @@ function render_weekly_shift_table($atts, $employees, $corp_accounts, $shift_ass
     
     .cms-shift-table th.employee-column {
         background: var(--shift-primary-dark);
-        min-width: 180px;
+        min-width: 200px;
     }
     
     .cms-shift-table th.day-header {
@@ -311,10 +453,19 @@ function render_weekly_shift_table($atts, $employees, $corp_accounts, $shift_ass
         color: var(--shift-secondary);
     }
     
+    .cms-shift-table .employee-team {
+        font-size: 10px;
+        color: var(--shift-primary);
+        background: white;
+        padding: 2px 8px;
+        border-radius: 12px;
+        margin-top: 3px;
+    }
+    
     .cms-shift-table .shift-cell {
         text-align: left;
         background: white;
-        min-width: 180px;
+        min-width: 200px;
     }
     
     .cms-shift-table .shift-entry {
@@ -324,6 +475,16 @@ function render_weekly_shift_table($atts, $employees, $corp_accounts, $shift_ass
         margin-bottom: 5px;
         border-radius: 4px;
         font-size: 12px;
+    }
+    
+    .cms-shift-table .shift-entry.overnight {
+        background: var(--shift-night-bg);
+        border-left: 3px solid #fbbf24;
+        color: var(--shift-night-text);
+    }
+    
+    .cms-shift-table .shift-entry.overnight .shift-time {
+        color: #fbbf24;
     }
     
     .cms-shift-table .shift-time {
@@ -341,6 +502,22 @@ function render_weekly_shift_table($atts, $employees, $corp_accounts, $shift_ass
         background: #ffffff;
         border-radius: 12px;
         display: inline-block;
+    }
+    
+    .cms-shift-table .shift-entry.overnight .shift-corp {
+        background: var(--shift-night-border);
+        color: #e2e8f0;
+    }
+    
+    .cms-shift-table .overnight-badge {
+        display: inline-block;
+        background: #fbbf24;
+        color: #1e3a8a;
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 12px;
+        margin-left: 5px;
+        font-weight: 600;
     }
     
     .cms-shift-table .off-day {
@@ -380,86 +557,14 @@ function render_weekly_shift_table($atts, $employees, $corp_accounts, $shift_ass
         border-left: 3px solid var(--shift-primary);
     }
     
+    .cms-shift-legend-color.overnight {
+        background: var(--shift-night-bg);
+        border-left: 3px solid #fbbf24;
+    }
+    
     .cms-shift-legend-color.off {
         background: #f8fafc;
         border: 1px dashed var(--shift-gray);
-    }
-    
-    /* Modal */
-    .cms-shift-modal {
-        display: none;
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0,0,0,0.5);
-        z-index: 9999;
-        align-items: center;
-        justify-content: center;
-    }
-    
-    .cms-shift-modal-content {
-        background: white;
-        padding: 30px;
-        border-radius: 20px;
-        max-width: 500px;
-        width: 90%;
-        max-height: 80vh;
-        overflow-y: auto;
-    }
-    
-    .cms-shift-modal-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 20px;
-        padding-bottom: 15px;
-        border-bottom: 2px solid var(--shift-gray-light);
-    }
-    
-    .cms-shift-modal-title {
-        font-size: 20px;
-        font-weight: 700;
-        color: var(--shift-primary);
-        margin: 0;
-    }
-    
-    .cms-shift-modal-close {
-        background: none;
-        border: none;
-        font-size: 24px;
-        cursor: pointer;
-        color: var(--shift-gray);
-    }
-    
-    .cms-shift-modal-body {
-        margin-bottom: 25px;
-    }
-    
-    .cms-shift-modal-footer {
-        display: flex;
-        justify-content: flex-end;
-        gap: 10px;
-    }
-    
-    .cms-shift-modal-btn {
-        padding: 10px 20px;
-        border-radius: 40px;
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-        border: none;
-    }
-    
-    .cms-shift-modal-btn.confirm {
-        background: var(--shift-danger);
-        color: white;
-    }
-    
-    .cms-shift-modal-btn.cancel {
-        background: var(--shift-gray-light);
-        color: var(--shift-primary);
     }
     
     /* Responsive */
@@ -505,14 +610,16 @@ function render_weekly_shift_table($atts, $employees, $corp_accounts, $shift_ass
             </div>
             
             <div class="cms-shift-actions">
+                <?php if ($atts['allow_edit'] === 'yes'): ?>
                 <a href="<?php echo esc_url(add_query_arg('edit_mode', '1')); ?>" class="cms-shift-action-btn edit-mode">
                     ✏️ Edit Schedule
                 </a>
+                <?php endif; ?>
             </div>
         </div>
         
         <!-- Filters -->
-        <?php if ($atts['show_corp_filter'] === 'yes'): ?>
+        <?php if ($atts['show_corp_filter'] === 'yes' && !empty($corp_accounts)): ?>
         <div class="cms-shift-filters">
             <div class="cms-shift-filter-group">
                 <span class="cms-shift-filter-label">Corporate Account:</span>
@@ -555,37 +662,39 @@ function render_weekly_shift_table($atts, $employees, $corp_accounts, $shift_ass
                             <div class="employee-info">
                                 <span class="employee-name"><?php echo esc_html($employee['name']); ?></span>
                                 <span class="employee-username">@<?php echo esc_html($employee['username']); ?></span>
-                                <span style="font-size: 10px; color: #64748b;"><?php echo esc_html($employee['position']); ?></span>
+                                <?php if (!empty($employee['corp_team'])): ?>
+                                <span class="employee-team"><?php echo esc_html($employee['corp_team']); ?></span>
+                                <?php endif; ?>
                             </div>
                         </td>
                         
                         <!-- Days Columns -->
                         <?php foreach ($day_labels as $index => $day):
                             $date = $week_dates[strtolower($day)];
-                            $shifts = get_shifts_for_employee($employee['username'], $date, $shift_assignments);
+                            $key = $employee['username'] . '_' . $date;
+                            $shifts = isset($shifts_by_employee_date[$key]) ? $shifts_by_employee_date[$key] : [];
                         ?>
                             <td class="shift-cell" data-date="<?php echo esc_attr($date); ?>" data-employee="<?php echo esc_attr($employee['username']); ?>">
                                 <?php if (!empty($shifts)): ?>
                                     <?php foreach ($shifts as $shift): 
-                                        $corp_name = '';
-                                        if ($shift && isset($shift['corp_acc_username'])) {
-                                            foreach ($corp_accounts as $corp) {
-                                                if ($corp['username'] === $shift['corp_acc_username']) {
-                                                    $corp_name = $corp['company_name'];
-                                                    break;
-                                                }
-                                            }
-                                        }
+                                        $corp_name = isset($corp_lookup[$shift['corp_acc_username']]) ? $corp_lookup[$shift['corp_acc_username']] : '';
+                                        $is_overnight = is_overnight_shift($shift['shift_start_time'], $shift['shift_end_time']);
+                                        $overnight_class = $is_overnight ? 'overnight' : '';
                                     ?>
-                                        <div class="shift-entry" data-shift-id="<?php echo esc_attr($shift['id']); ?>" data-corp="<?php echo esc_attr($shift['corp_acc_username'] ?? ''); ?>">
-                                            <span class="shift-time"><?php echo esc_html($shift['shift_start_time']); ?> - <?php echo esc_html($shift['shift_end_time']); ?></span>
-                                            <?php if ($shift['corp_acc_username']): ?>
+                                        <div class="shift-entry <?php echo $overnight_class; ?>" data-shift-id="<?php echo esc_attr($shift['id']); ?>" data-corp="<?php echo esc_attr($shift['corp_acc_username'] ?? ''); ?>">
+                                            <span class="shift-time">
+                                                <?php echo esc_html($shift['shift_start_time']); ?> - <?php echo esc_html($shift['shift_end_time']); ?>
+                                                <?php if ($is_overnight): ?>
+                                                    <span class="overnight-badge">🌙 Next Day</span>
+                                                <?php endif; ?>
+                                            </span>
+                                            <?php if (!empty($shift['corp_acc_username']) && !empty($corp_name)): ?>
                                                 <span class="shift-corp"><?php echo esc_html($corp_name); ?></span>
                                             <?php endif; ?>
                                         </div>
                                     <?php endforeach; ?>
                                 <?php else: ?>
-                                    <div class="off-day">Off</div>
+                                    <div class="off-day">—</div>
                                 <?php endif; ?>
                             </td>
                         <?php endforeach; ?>
@@ -599,14 +708,15 @@ function render_weekly_shift_table($atts, $employees, $corp_accounts, $shift_ass
         <div class="cms-shift-legend">
             <div class="cms-shift-legend-item">
                 <div class="cms-shift-legend-color normal"></div>
-                <span>Active Shift</span>
+                <span>Day Shift</span>
+            </div>
+            <div class="cms-shift-legend-item">
+                <div class="cms-shift-legend-color overnight"></div>
+                <span>Overnight Shift (ends next day)</span>
             </div>
             <div class="cms-shift-legend-item">
                 <div class="cms-shift-legend-color off"></div>
                 <span>Off Day / No Shift</span>
-            </div>
-            <div class="cms-shift-legend-item">
-                <span>📌 Corporate Account assigned to shift</span>
             </div>
         </div>
     </div>
@@ -619,11 +729,11 @@ function render_weekly_shift_table($atts, $employees, $corp_accounts, $shift_ass
         entries.forEach(function(entry) {
             if (corp === '') {
                 entry.style.opacity = '1';
-                entry.style.backgroundColor = '#e6f7ff';
+                entry.style.backgroundColor = '';
             } else {
                 if (entry.getAttribute('data-corp') === corp) {
                     entry.style.opacity = '1';
-                    entry.style.backgroundColor = '#e6f7ff';
+                    entry.style.backgroundColor = '';
                 } else {
                     entry.style.opacity = '0.3';
                     entry.style.backgroundColor = '#f1f5f9';
@@ -657,8 +767,18 @@ function render_weekly_shift_table($atts, $employees, $corp_accounts, $shift_ass
  * Render Editable Weekly Shift Table
  */
 function render_editable_weekly_shift_table($atts, $employees, $corp_accounts, $shift_assignments, $week_dates) {
-    $days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
     $day_labels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    
+    // Create lookup array for shifts by employee and date
+    $shifts_by_employee_date = [];
+    foreach ($shift_assignments as $shift) {
+        $key = $shift['emp_username'] . '_' . $shift['date'];
+        if (!isset($shifts_by_employee_date[$key])) {
+            $shifts_by_employee_date[$key] = [];
+        }
+        $shifts_by_employee_date[$key][] = $shift;
+    }
+    
     ?>
     
     <div class="cms-shift-container <?php echo esc_attr($atts['class']); ?>">
@@ -706,46 +826,42 @@ function render_editable_weekly_shift_table($atts, $employees, $corp_accounts, $
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($employees as $employee): ?>
-                        <tr data-employee="<?php echo esc_attr($employee['username']); ?>">
+                        <?php foreach ($employees as $employee): 
+                            $emp_username = $employee['username'];
+                        ?>
+                        <tr data-employee="<?php echo esc_attr($emp_username); ?>">
                             <!-- Employee Column -->
                             <td class="employee-cell">
                                 <div class="employee-info">
                                     <span class="employee-name"><?php echo esc_html($employee['name']); ?></span>
-                                    <span class="employee-username">@<?php echo esc_html($employee['username']); ?></span>
-                                    <input type="hidden" name="shifts[<?php echo esc_attr($employee['username']); ?>][employee]" value="<?php echo esc_attr($employee['username']); ?>">
+                                    <span class="employee-username">@<?php echo esc_html($emp_username); ?></span>
                                 </div>
                             </td>
                             
                             <!-- Days Columns - Editable -->
                             <?php foreach ($day_labels as $index => $day):
                                 $date = $week_dates[strtolower($day)];
-                                $shifts = get_shifts_for_employee($employee['username'], $date, $shift_assignments);
+                                $key = $emp_username . '_' . $date;
+                                $shifts = isset($shifts_by_employee_date[$key]) ? $shifts_by_employee_date[$key] : [];
                             ?>
-                                <td class="shift-cell editable-cell" data-date="<?php echo esc_attr($date); ?>" data-employee="<?php echo esc_attr($employee['username']); ?>">
+                                <td class="shift-cell editable-cell" data-date="<?php echo esc_attr($date); ?>" data-employee="<?php echo esc_attr($emp_username); ?>">
                                     <div class="shift-editor">
-                                        <div class="shift-entries" id="entries-<?php echo esc_attr($employee['username']); ?>-<?php echo esc_attr($date); ?>">
+                                        <div class="shift-entries" id="entries-<?php echo esc_attr($emp_username); ?>-<?php echo esc_attr($date); ?>">
                                             <?php if (!empty($shifts)): ?>
-                                                <?php foreach ($shifts as $index => $shift): 
-                                                    $corp_name = '';
-                                                    if ($shift && isset($shift['corp_acc_username'])) {
-                                                        foreach ($corp_accounts as $corp) {
-                                                            if ($corp['username'] === $shift['corp_acc_username']) {
-                                                                $corp_name = $corp['company_name'];
-                                                                break;
-                                                            }
-                                                        }
-                                                    }
+                                                <?php foreach ($shifts as $shift_index => $shift): 
+                                                    $is_overnight = is_overnight_shift($shift['shift_start_time'], $shift['shift_end_time']);
+                                                    // Use a truly unique key that won't conflict
+                                                    $unique_key = 'shift_' . ($shift['id'] ?? 'new') . '_' . $shift_index . '_' . time();
                                                 ?>
-                                                    <div class="edit-shift-entry" data-shift-id="<?php echo esc_attr($shift['id']); ?>">
-                                                        <input type="hidden" name="shifts[<?php echo esc_attr($employee['username']); ?>][<?php echo esc_attr($date); ?>][<?php echo $index; ?>][id]" value="<?php echo esc_attr($shift['id']); ?>">
+                                                    <div class="edit-shift-entry <?php echo $is_overnight ? 'overnight' : ''; ?>" data-shift-id="<?php echo esc_attr($shift['id'] ?? ''); ?>">
+                                                        <input type="hidden" name="shifts[<?php echo esc_attr($emp_username); ?>][<?php echo esc_attr($date); ?>][<?php echo esc_attr($unique_key); ?>][id]" value="<?php echo esc_attr($shift['id'] ?? ''); ?>">
                                                         <div class="edit-shift-row">
-                                                            <input type="time" name="shifts[<?php echo esc_attr($employee['username']); ?>][<?php echo esc_attr($date); ?>][<?php echo $index; ?>][start]" value="<?php echo esc_attr($shift['shift_start_time']); ?>" class="shift-time-input" required>
+                                                            <input type="time" name="shifts[<?php echo esc_attr($emp_username); ?>][<?php echo esc_attr($date); ?>][<?php echo esc_attr($unique_key); ?>][start]" value="<?php echo esc_attr($shift['shift_start_time']); ?>" class="shift-time-input" required>
                                                             <span>to</span>
-                                                            <input type="time" name="shifts[<?php echo esc_attr($employee['username']); ?>][<?php echo esc_attr($date); ?>][<?php echo $index; ?>][end]" value="<?php echo esc_attr($shift['shift_end_time']); ?>" class="shift-time-input" required>
+                                                            <input type="time" name="shifts[<?php echo esc_attr($emp_username); ?>][<?php echo esc_attr($date); ?>][<?php echo esc_attr($unique_key); ?>][end]" value="<?php echo esc_attr($shift['shift_end_time']); ?>" class="shift-time-input" required>
                                                         </div>
                                                         <div class="edit-shift-corp">
-                                                            <select name="shifts[<?php echo esc_attr($employee['username']); ?>][<?php echo esc_attr($date); ?>][<?php echo $index; ?>][corp]" class="shift-corp-select">
+                                                            <select name="shifts[<?php echo esc_attr($emp_username); ?>][<?php echo esc_attr($date); ?>][<?php echo esc_attr($unique_key); ?>][corp]" class="shift-corp-select">
                                                                 <option value="">No Corporate Account</option>
                                                                 <?php foreach ($corp_accounts as $corp): ?>
                                                                 <option value="<?php echo esc_attr($corp['username']); ?>" <?php selected($shift['corp_acc_username'] ?? '', $corp['username']); ?>>
@@ -757,6 +873,9 @@ function render_editable_weekly_shift_table($atts, $employees, $corp_accounts, $
                                                             <button type="button" class="remove-shift-btn" onclick="removeShiftEntry(this)" title="Remove Shift">✕</button>
                                                             <?php endif; ?>
                                                         </div>
+                                                        <?php if ($is_overnight): ?>
+                                                            <div style="font-size: 10px; color: #fbbf24; margin-top: 4px; text-align: right;">🌙 Overnight Shift</div>
+                                                        <?php endif; ?>
                                                     </div>
                                                 <?php endforeach; ?>
                                             <?php else: ?>
@@ -764,7 +883,7 @@ function render_editable_weekly_shift_table($atts, $employees, $corp_accounts, $
                                             <?php endif; ?>
                                         </div>
                                         <?php if ($atts['allow_create'] === 'yes'): ?>
-                                        <button type="button" class="add-shift-btn" onclick="addShiftEntry('<?php echo esc_js($employee['username']); ?>', '<?php echo esc_js($date); ?>')">
+                                        <button type="button" class="add-shift-btn" onclick="addShiftEntry('<?php echo esc_js($emp_username); ?>', '<?php echo esc_js($date); ?>')">
                                             + Add Shift
                                         </button>
                                         <?php endif; ?>
@@ -781,35 +900,54 @@ function render_editable_weekly_shift_table($atts, $employees, $corp_accounts, $
         <style>
         .editable-cell {
             background: #fff9f0;
-            min-width: 220px;
+            min-width: 280px;
         }
         
         .shift-editor {
             padding: 5px;
         }
         
+        .shift-entries {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
         .edit-shift-entry {
             background: #e6f7ff;
             border-left: 3px solid var(--shift-primary);
-            padding: 8px;
-            margin-bottom: 8px;
-            border-radius: 4px;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            position: relative;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        
+        .edit-shift-entry.overnight {
+            background: var(--shift-night-bg);
+            border-left: 3px solid #fbbf24;
+            color: var(--shift-night-text);
+        }
+        
+        .edit-shift-entry.overnight .shift-time-input {
+            background: #4a5568;
+            color: #e2e8f0;
+            border-color: #718096;
         }
         
         .edit-shift-row {
             display: flex;
             align-items: center;
-            gap: 5px;
-            margin-bottom: 5px;
+            gap: 8px;
+            margin-bottom: 10px;
         }
         
         .shift-time-input {
-            padding: 4px 6px;
+            padding: 8px 10px;
             border: 1px solid #cbd5e0;
-            border-radius: 4px;
+            border-radius: 6px;
             font-family: monospace;
-            font-size: 12px;
-            width: 80px;
+            font-size: 13px;
+            width: 100px;
         }
         
         .shift-time-input:focus {
@@ -820,29 +958,31 @@ function render_editable_weekly_shift_table($atts, $employees, $corp_accounts, $
         
         .edit-shift-corp {
             display: flex;
-            gap: 5px;
+            gap: 8px;
             align-items: center;
         }
         
         .shift-corp-select {
             flex: 1;
-            padding: 4px 6px;
+            padding: 8px 10px;
             border: 1px solid #cbd5e0;
-            border-radius: 4px;
-            font-size: 11px;
+            border-radius: 6px;
+            font-size: 12px;
+            background: white;
         }
         
         .add-shift-btn {
             width: 100%;
-            padding: 6px;
+            padding: 10px;
             background: var(--shift-success);
             color: white;
             border: none;
-            border-radius: 4px;
-            font-size: 12px;
+            border-radius: 6px;
+            font-size: 13px;
             font-weight: 600;
             cursor: pointer;
-            margin-top: 5px;
+            margin-top: 10px;
+            transition: background 0.2s;
         }
         
         .add-shift-btn:hover {
@@ -850,17 +990,18 @@ function render_editable_weekly_shift_table($atts, $employees, $corp_accounts, $
         }
         
         .remove-shift-btn {
-            width: 24px;
-            height: 24px;
+            width: 32px;
+            height: 32px;
             background: var(--shift-danger);
             color: white;
             border: none;
-            border-radius: 4px;
+            border-radius: 6px;
             cursor: pointer;
-            font-size: 12px;
+            font-size: 16px;
             display: flex;
             align-items: center;
             justify-content: center;
+            transition: background 0.2s;
         }
         
         .remove-shift-btn:hover {
@@ -870,47 +1011,45 @@ function render_editable_weekly_shift_table($atts, $employees, $corp_accounts, $
         .no-shifts {
             color: var(--shift-gray);
             font-style: italic;
-            padding: 8px;
+            padding: 15px;
             text-align: center;
             background: #f8fafc;
-            border-radius: 4px;
+            border-radius: 6px;
             margin-bottom: 5px;
-        }
-        
-        .edit-shift-entry.template {
-            display: none;
+            border: 1px dashed #cbd5e0;
         }
         </style>
         
         <script>
-        let shiftCounter = {};
-        
         function addShiftEntry(employee, date) {
             const container = document.getElementById(`entries-${employee}-${date}`);
+            
+            // Create a truly unique key using timestamp + random number
+            const uniqueKey = 'new_' + Date.now() + '_' + Math.floor(Math.random() * 1000000);
+            
             const template = document.createElement('div');
             template.className = 'edit-shift-entry new-shift';
             
-            // Generate a temporary ID for new entries
-            const tempId = 'new_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-            
-            // Get the current count for this employee/date combination
-            const key = `${employee}_${date}`;
-            shiftCounter[key] = (shiftCounter[key] || 0) + 1;
-            const index = shiftCounter[key];
+            // Get corporate account options from PHP
+            const corpOptions = `<?php 
+                $options = '';
+                foreach ($corp_accounts as $corp) {
+                    $options .= '<option value="' . esc_attr($corp['username']) . '">' . esc_html($corp['company_name']) . '</option>';
+                }
+                echo $options;
+            ?>`;
             
             template.innerHTML = `
-                <input type="hidden" name="shifts[${employee}][${date}][${index}][id]" value="">
+                <input type="hidden" name="shifts[${employee}][${date}][${uniqueKey}][id]" value="">
                 <div class="edit-shift-row">
-                    <input type="time" name="shifts[${employee}][${date}][${index}][start]" value="09:00" class="shift-time-input" required>
+                    <input type="time" name="shifts[${employee}][${date}][${uniqueKey}][start]" value="09:00" class="shift-time-input" required>
                     <span>to</span>
-                    <input type="time" name="shifts[${employee}][${date}][${index}][end]" value="17:00" class="shift-time-input" required>
+                    <input type="time" name="shifts[${employee}][${date}][${uniqueKey}][end]" value="17:00" class="shift-time-input" required>
                 </div>
                 <div class="edit-shift-corp">
-                    <select name="shifts[${employee}][${date}][${index}][corp]" class="shift-corp-select">
+                    <select name="shifts[${employee}][${date}][${uniqueKey}][corp]" class="shift-corp-select">
                         <option value="">No Corporate Account</option>
-                        <?php foreach ($corp_accounts as $corp): ?>
-                        <option value="<?php echo esc_attr($corp['username']); ?>"><?php echo esc_html($corp['company_name']); ?></option>
-                        <?php endforeach; ?>
+                        ${corpOptions}
                     </select>
                     <button type="button" class="remove-shift-btn" onclick="removeShiftEntry(this)" title="Remove Shift">✕</button>
                 </div>
@@ -923,6 +1062,9 @@ function render_editable_weekly_shift_table($atts, $employees, $corp_accounts, $
             }
             
             container.appendChild(template);
+            
+            // Scroll to the new entry
+            template.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
         
         function removeShiftEntry(button) {
@@ -942,22 +1084,31 @@ function render_editable_weekly_shift_table($atts, $employees, $corp_accounts, $
             // Validate all time inputs
             const timeInputs = document.querySelectorAll('.shift-time-input');
             let isValid = true;
+            let firstInvalid = null;
             
             timeInputs.forEach(input => {
                 if (!input.value) {
                     input.style.borderColor = '#ef4444';
                     isValid = false;
+                    if (!firstInvalid) firstInvalid = input;
                 } else {
                     input.style.borderColor = '#cbd5e0';
                 }
             });
             
             if (!isValid) {
-                alert('Please fill in all shift times.');
+                alert('Please fill in all shift times before saving.');
+                if (firstInvalid) {
+                    firstInvalid.focus();
+                    firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
                 return;
             }
             
-            if (confirm('Save all shift changes?')) {
+            // Count total shifts being saved
+            const shiftCount = document.querySelectorAll('.edit-shift-entry').length;
+            
+            if (confirm(`Save all changes? (${shiftCount} shift${shiftCount !== 1 ? 's' : ''} will be saved)`)) {
                 document.getElementById('shift-edit-form').submit();
             }
         }
@@ -967,7 +1118,11 @@ function render_editable_weekly_shift_table($atts, $employees, $corp_accounts, $
         <div class="cms-shift-legend">
             <div class="cms-shift-legend-item">
                 <div class="cms-shift-legend-color normal"></div>
-                <span>Edit Mode - Click + Add Shift to add multiple shifts per day</span>
+                <span>Day Shift</span>
+            </div>
+            <div class="cms-shift-legend-item">
+                <div class="cms-shift-legend-color overnight"></div>
+                <span>Overnight Shift</span>
             </div>
         </div>
     </div>
@@ -975,355 +1130,78 @@ function render_editable_weekly_shift_table($atts, $employees, $corp_accounts, $
 }
 
 /**
- * Helper Functions
- */
-function get_week_dates($week_start = 'monday') {
-    $week_offset = isset($_GET['week_offset']) ? intval($_GET['week_offset']) : 0;
-    
-    $dates = [];
-    $current = strtotime('this ' . $week_start . ' ' . ($week_offset > 0 ? '+' . $week_offset . ' week' : ($week_offset < 0 ? $week_offset . ' week' : '')));
-    
-    $days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-    foreach ($days as $index => $day) {
-        $dates[$day] = date('Y-m-d', strtotime('+' . $index . ' days', $current));
-    }
-    
-    return $dates;
-}
-
-function get_all_employees_for_shift() {
-    return array(
-        array('username' => 'noshad', 'name' => 'Noshad', 'position' => 'Senior Developer'),
-        array('username' => 'ali_ahmad', 'name' => 'Ali Ahmad', 'position' => 'Developer'),
-        array('username' => 'hasnain', 'name' => 'Hasnain', 'position' => 'Support Engineer'),
-        array('username' => 'salman', 'name' => 'Salman', 'position' => 'System Admin'),
-        array('username' => 'riyan', 'name' => 'Riyan', 'position' => 'Junior Developer'),
-    );
-}
-
-function get_all_corp_accounts_for_shift() {
-    return array(
-        array('username' => 'techcorp', 'company_name' => 'TechCorp Solutions'),
-        array('username' => 'globalfinance', 'company_name' => 'Global Finance Ltd'),
-        array('username' => 'healthcare_plus', 'company_name' => 'Healthcare Plus'),
-        array('username' => 'eduworld', 'company_name' => 'EduWorld International'),
-        array('username' => 'green_retail', 'company_name' => 'Green Retail Chain'),
-    );
-}
-
-function get_mock_shift_assignments() {
-    return array(
-        array(
-            'id' => 1,
-            'emp_username' => 'noshad',
-            'date' => '2024-03-18',
-            'shift_start_time' => '07:00',
-            'shift_end_time' => '18:00',
-            'corp_acc_username' => 'techcorp'
-        ),
-        array(
-            'id' => 2,
-            'emp_username' => 'noshad',
-            'date' => '2024-03-18',
-            'shift_start_time' => '09:00',
-            'shift_end_time' => '12:00',
-            'corp_acc_username' => 'globalfinance'
-        ),
-        array(
-            'id' => 3,
-            'emp_username' => 'noshad',
-            'date' => '2024-03-19',
-            'shift_start_time' => '07:00',
-            'shift_end_time' => '18:00',
-            'corp_acc_username' => 'techcorp'
-        ),
-        array(
-            'id' => 4,
-            'emp_username' => 'noshad',
-            'date' => '2024-03-20',
-            'shift_start_time' => '07:00',
-            'shift_end_time' => '18:00',
-            'corp_acc_username' => 'techcorp'
-        ),
-        array(
-            'id' => 5,
-            'emp_username' => 'noshad',
-            'date' => '2024-03-21',
-            'shift_start_time' => '07:00',
-            'shift_end_time' => '19:00',
-            'corp_acc_username' => 'globalfinance'
-        ),
-        array(
-            'id' => 6,
-            'emp_username' => 'noshad',
-            'date' => '2024-03-23',
-            'shift_start_time' => '10:00',
-            'shift_end_time' => '14:00',
-            'corp_acc_username' => 'green_retail'
-        ),
-        array(
-            'id' => 7,
-            'emp_username' => 'noshad',
-            'date' => '2024-03-23',
-            'shift_start_time' => '15:00',
-            'shift_end_time' => '20:00',
-            'corp_acc_username' => 'eduworld'
-        ),
-        array(
-            'id' => 8,
-            'emp_username' => 'ali_ahmad',
-            'date' => '2024-03-18',
-            'shift_start_time' => '11:00',
-            'shift_end_time' => '21:00',
-            'corp_acc_username' => 'healthcare_plus'
-        ),
-        array(
-            'id' => 9,
-            'emp_username' => 'ali_ahmad',
-            'date' => '2024-03-19',
-            'shift_start_time' => '11:00',
-            'shift_end_time' => '21:00',
-            'corp_acc_username' => 'healthcare_plus'
-        ),
-        array(
-            'id' => 10,
-            'emp_username' => 'ali_ahmad',
-            'date' => '2024-03-20',
-            'shift_start_time' => '11:00',
-            'shift_end_time' => '21:00',
-            'corp_acc_username' => 'healthcare_plus'
-        ),
-        array(
-            'id' => 11,
-            'emp_username' => 'ali_ahmad',
-            'date' => '2024-03-21',
-            'shift_start_time' => '11:00',
-            'shift_end_time' => '21:00',
-            'corp_acc_username' => 'healthcare_plus'
-        ),
-        array(
-            'id' => 12,
-            'emp_username' => 'ali_ahmad',
-            'date' => '2024-03-22',
-            'shift_start_time' => '11:00',
-            'shift_end_time' => '21:00',
-            'corp_acc_username' => 'healthcare_plus'
-        ),
-        array(
-            'id' => 13,
-            'emp_username' => 'hasnain',
-            'date' => '2024-03-20',
-            'shift_start_time' => '21:00',
-            'shift_end_time' => '07:00',
-            'corp_acc_username' => 'techcorp'
-        ),
-        array(
-            'id' => 14,
-            'emp_username' => 'hasnain',
-            'date' => '2024-03-21',
-            'shift_start_time' => '21:00',
-            'shift_end_time' => '07:00',
-            'corp_acc_username' => 'techcorp'
-        ),
-        array(
-            'id' => 15,
-            'emp_username' => 'hasnain',
-            'date' => '2024-03-22',
-            'shift_start_time' => '19:00',
-            'shift_end_time' => '07:00',
-            'corp_acc_username' => 'globalfinance'
-        ),
-        array(
-            'id' => 16,
-            'emp_username' => 'hasnain',
-            'date' => '2024-03-23',
-            'shift_start_time' => '19:00',
-            'shift_end_time' => '08:00',
-            'corp_acc_username' => 'globalfinance'
-        ),
-        array(
-            'id' => 17,
-            'emp_username' => 'hasnain',
-            'date' => '2024-03-24',
-            'shift_start_time' => '20:00',
-            'shift_end_time' => '07:00',
-            'corp_acc_username' => 'green_retail'
-        ),
-        array(
-            'id' => 18,
-            'emp_username' => 'salman',
-            'date' => '2024-03-18',
-            'shift_start_time' => '21:00',
-            'shift_end_time' => '07:00',
-            'corp_acc_username' => 'eduworld'
-        ),
-        array(
-            'id' => 19,
-            'emp_username' => 'salman',
-            'date' => '2024-03-19',
-            'shift_start_time' => '21:00',
-            'shift_end_time' => '07:00',
-            'corp_acc_username' => 'eduworld'
-        ),
-        array(
-            'id' => 20,
-            'emp_username' => 'salman',
-            'date' => '2024-03-22',
-            'shift_start_time' => '21:00',
-            'shift_end_time' => '08:00',
-            'corp_acc_username' => 'techcorp'
-        ),
-        array(
-            'id' => 21,
-            'emp_username' => 'salman',
-            'date' => '2024-03-23',
-            'shift_start_time' => '21:00',
-            'shift_end_time' => '10:00',
-            'corp_acc_username' => 'techcorp'
-        ),
-        array(
-            'id' => 22,
-            'emp_username' => 'salman',
-            'date' => '2024-03-24',
-            'shift_start_time' => '19:00',
-            'shift_end_time' => '05:00',
-            'corp_acc_username' => 'healthcare_plus'
-        ),
-        array(
-            'id' => 23,
-            'emp_username' => 'riyan',
-            'date' => '2024-03-18',
-            'shift_start_time' => '18:00',
-            'shift_end_time' => '05:00',
-            'corp_acc_username' => 'green_retail'
-        ),
-        array(
-            'id' => 24,
-            'emp_username' => 'riyan',
-            'date' => '2024-03-19',
-            'shift_start_time' => '18:00',
-            'shift_end_time' => '05:00',
-            'corp_acc_username' => 'green_retail'
-        ),
-        array(
-            'id' => 25,
-            'emp_username' => 'riyan',
-            'date' => '2024-03-20',
-            'shift_start_time' => '18:00',
-            'shift_end_time' => '05:00',
-            'corp_acc_username' => 'green_retail'
-        ),
-        array(
-            'id' => 26,
-            'emp_username' => 'riyan',
-            'date' => '2024-03-21',
-            'shift_start_time' => '18:00',
-            'shift_end_time' => '05:00',
-            'corp_acc_username' => 'globalfinance'
-        ),
-        array(
-            'id' => 27,
-            'emp_username' => 'riyan',
-            'date' => '2024-03-23',
-            'shift_start_time' => '07:00',
-            'shift_end_time' => '19:00',
-            'corp_acc_username' => 'techcorp'
-        ),
-        array(
-            'id' => 28,
-            'emp_username' => 'riyan',
-            'date' => '2024-03-24',
-            'shift_start_time' => '19:00',
-            'shift_end_time' => '11:00',
-            'corp_acc_username' => 'eduworld'
-        ),
-    );
-}
-
-function get_shifts_for_employee($emp_username, $date, $assignments) {
-    $shifts = [];
-    foreach ($assignments as $assignment) {
-        if ($assignment['emp_username'] === $emp_username && $assignment['date'] === $date) {
-            $shifts[] = $assignment;
-        }
-    }
-    // Sort by start time
-    usort($shifts, function($a, $b) {
-        return strcmp($a['shift_start_time'], $b['shift_start_time']);
-    });
-    return $shifts;
-}
-
-function get_shift_assignment_by_id($id, $assignments) {
-    foreach ($assignments as $assignment) {
-        if ($assignment['id'] == $id) {
-            return $assignment;
-        }
-    }
-    return null;
-}
-
-function get_employee_shift_assignments($emp_username, $assignments) {
-    $result = [];
-    foreach ($assignments as $assignment) {
-        if ($assignment['emp_username'] === $emp_username) {
-            $result[] = $assignment;
-        }
-    }
-    // Sort by date
-    usort($result, function($a, $b) {
-        return strcmp($b['date'], $a['date']);
-    });
-    return $result;
-}
-
-/**
- * Handle form submissions
+ * Handle form submissions for saving shifts
  */
 function cms_handle_shift_management_actions() {
-    if (isset($_POST['submit_shift'])) {
+    global $wpdb;
+    
+    if (isset($_POST['action']) && $_POST['action'] === 'save_weekly_shifts') {
+        // Verify nonce
         if (!isset($_POST['cms_shift_nonce']) || !wp_verify_nonce($_POST['cms_shift_nonce'], 'cms_shift_management')) {
             wp_die('Security check failed');
         }
         
-        $action = $_POST['action'];
-        $redirect_url = $_POST['redirect'];
+        $redirect_url = isset($_POST['redirect']) ? $_POST['redirect'] : home_url();
+        $week_start = sanitize_text_field($_POST['week_start']);
+        $week_end = sanitize_text_field($_POST['week_end']);
         
-        if ($action === 'create_shift') {
-            // Here you would insert into database
-            wp_redirect(add_query_arg('shift_created', '1', $redirect_url));
-            exit;
-        } elseif ($action === 'edit_shift') {
-            // Here you would update database
-            wp_redirect(add_query_arg('shift_updated', '1', $redirect_url));
-            exit;
-        } elseif ($action === 'save_weekly_shifts') {
-            // Here you would save all shifts
-            // Process $_POST['shifts'] array
-            wp_redirect(add_query_arg('shifts_saved', '1', $redirect_url));
-            exit;
+        $table = $wpdb->prefix . 'cms_shift_management';
+        
+        // First, delete all shifts for this week to start fresh
+        // This prevents orphaned shifts and ensures clean slate
+        $wpdb->query($wpdb->prepare(
+            "DELETE FROM $table WHERE date BETWEEN %s AND %s",
+            $week_start,
+            $week_end
+        ));
+        
+        $insert_count = 0;
+        
+        // Process shifts data
+        if (isset($_POST['shifts']) && is_array($_POST['shifts'])) {
+            foreach ($_POST['shifts'] as $emp_username => $dates) {
+                foreach ($dates as $date => $shifts) {
+                    // Validate date is within the week
+                    if ($date < $week_start || $date > $week_end) {
+                        continue;
+                    }
+                    
+                    // Insert new shifts
+                    if (is_array($shifts)) {
+                        foreach ($shifts as $shift_key => $shift) {
+                            // Skip empty shifts (where user added but didn't fill times)
+                            if (empty($shift['start']) || empty($shift['end'])) {
+                                continue;
+                            }
+                            
+                            $result = $wpdb->insert(
+                                $table,
+                                array(
+                                    'emp_username' => sanitize_text_field($emp_username),
+                                    'date' => sanitize_text_field($date),
+                                    'shift_start_time' => sanitize_text_field($shift['start']),
+                                    'shift_end_time' => sanitize_text_field($shift['end']),
+                                    'corp_acc_username' => !empty($shift['corp']) ? sanitize_text_field($shift['corp']) : null,
+                                    'created_at' => current_time('mysql')
+                                ),
+                                array('%s', '%s', '%s', '%s', '%s', '%s')
+                            );
+                            
+                            if ($result) {
+                                $insert_count++;
+                            }
+                        }
+                    }
+                }
+            }
         }
-    }
-    
-    if (isset($_GET['action']) && $_GET['action'] === 'delete_shift' && isset($_GET['shift_id'])) {
-        if (!isset($_GET['_wpnonce']) || !wp_verify_nonce($_GET['_wpnonce'], 'delete_shift_' . $_GET['shift_id'])) {
-            wp_die('Security check failed');
-        }
         
-        $shift_id = intval($_GET['shift_id']);
-        $redirect_url = $_GET['redirect'] ?? remove_query_arg(['action', 'shift_id', '_wpnonce', 'redirect']);
+        // Add count to redirect URL for debugging
+        $redirect_url = add_query_arg('shifts_saved', '1', $redirect_url);
+        $redirect_url = add_query_arg('shift_count', $insert_count, $redirect_url);
         
-        // Here you would delete from database
-        
-        wp_redirect(add_query_arg('shift_deleted', '1', $redirect_url));
+        wp_redirect($redirect_url);
         exit;
     }
 }
-add_action('admin_post_create_shift', 'cms_handle_shift_management_actions');
-add_action('admin_post_edit_shift', 'cms_handle_shift_management_actions');
 add_action('admin_post_save_weekly_shifts', 'cms_handle_shift_management_actions');
-add_action('admin_post_nopriv_create_shift', 'cms_handle_shift_management_actions');
-add_action('admin_post_nopriv_edit_shift', 'cms_handle_shift_management_actions');
-add_action('admin_post_nopriv_save_weekly_shifts', 'cms_handle_shift_management_actions');
-
-?>

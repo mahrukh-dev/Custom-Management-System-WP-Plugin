@@ -265,7 +265,6 @@ function cms_create_database_tables() {
         PRIMARY KEY (id),
         FOREIGN KEY (emp_username) REFERENCES $table_employee(username) ON DELETE CASCADE,
         FOREIGN KEY (corp_acc_username) REFERENCES $table_corp_acc(username) ON DELETE SET NULL,
-        UNIQUE KEY unique_shift (emp_username, date),
         INDEX idx_emp (emp_username),
         INDEX idx_date (date),
         INDEX idx_corp (corp_acc_username)
