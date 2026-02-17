@@ -54,7 +54,8 @@ function cms_emp_shift_management_shortcode($atts) {
     
     // Show success message if shifts were saved
     if (isset($_GET['shifts_saved']) && $_GET['shifts_saved'] === '1') {
-        echo '<div class="notice notice-success" style="padding: 15px; margin: 20px 0; background: #d4edda; border-left: 4px solid #28a745; border-radius: 4px; font-weight: 500;">✅ Shifts saved successfully!</div>';
+        $count = isset($_GET['shift_count']) ? intval($_GET['shift_count']) : 0;
+        echo '<div class="notice notice-success" style="padding: 15px; margin: 20px 0; background: #d4edda; border-left: 4px solid #28a745; border-radius: 4px; font-weight: 500;">✅ ' . $count . ' shift(s) saved/updated successfully!</div>';
     }
     
     // Check if we're in edit mode
@@ -100,7 +101,7 @@ function get_all_employees_from_db() {
     return $wpdb->get_results(
         "SELECT username, name, position, corp_team 
          FROM $table 
-         WHERE termination_date IS NULL 
+         WHERE (termination_date IS NULL OR termination_date > CURDATE())
          ORDER BY name ASC",
         ARRAY_A
     );
@@ -771,12 +772,14 @@ function render_editable_weekly_shift_table($atts, $employees, $corp_accounts, $
     
     // Create lookup array for shifts by employee and date
     $shifts_by_employee_date = [];
+    $existing_shift_ids = [];
     foreach ($shift_assignments as $shift) {
         $key = $shift['emp_username'] . '_' . $shift['date'];
         if (!isset($shifts_by_employee_date[$key])) {
             $shifts_by_employee_date[$key] = [];
         }
         $shifts_by_employee_date[$key][] = $shift;
+        $existing_shift_ids[$shift['id']] = true;
     }
     
     ?>
@@ -846,22 +849,24 @@ function render_editable_weekly_shift_table($atts, $employees, $corp_accounts, $
                             ?>
                                 <td class="shift-cell editable-cell" data-date="<?php echo esc_attr($date); ?>" data-employee="<?php echo esc_attr($emp_username); ?>">
                                     <div class="shift-editor">
+                                        <input type="hidden" name="existing_shifts[<?php echo esc_attr($emp_username); ?>][<?php echo esc_attr($date); ?>]" value="1">
                                         <div class="shift-entries" id="entries-<?php echo esc_attr($emp_username); ?>-<?php echo esc_attr($date); ?>">
                                             <?php if (!empty($shifts)): ?>
                                                 <?php foreach ($shifts as $shift_index => $shift): 
                                                     $is_overnight = is_overnight_shift($shift['shift_start_time'], $shift['shift_end_time']);
-                                                    // Use a truly unique key that won't conflict
-                                                    $unique_key = 'shift_' . ($shift['id'] ?? 'new') . '_' . $shift_index . '_' . time();
+                                                    // Use shift ID as key for existing shifts
+                                                    $shift_key = 'existing_' . $shift['id'];
                                                 ?>
-                                                    <div class="edit-shift-entry <?php echo $is_overnight ? 'overnight' : ''; ?>" data-shift-id="<?php echo esc_attr($shift['id'] ?? ''); ?>">
-                                                        <input type="hidden" name="shifts[<?php echo esc_attr($emp_username); ?>][<?php echo esc_attr($date); ?>][<?php echo esc_attr($unique_key); ?>][id]" value="<?php echo esc_attr($shift['id'] ?? ''); ?>">
+                                                    <div class="edit-shift-entry <?php echo $is_overnight ? 'overnight' : ''; ?>" data-shift-id="<?php echo esc_attr($shift['id']); ?>">
+                                                        <input type="hidden" name="shifts[<?php echo esc_attr($emp_username); ?>][<?php echo esc_attr($date); ?>][<?php echo esc_attr($shift_key); ?>][id]" value="<?php echo esc_attr($shift['id']); ?>">
+                                                        <input type="hidden" name="shifts[<?php echo esc_attr($emp_username); ?>][<?php echo esc_attr($date); ?>][<?php echo esc_attr($shift_key); ?>][is_existing]" value="1">
                                                         <div class="edit-shift-row">
-                                                            <input type="time" name="shifts[<?php echo esc_attr($emp_username); ?>][<?php echo esc_attr($date); ?>][<?php echo esc_attr($unique_key); ?>][start]" value="<?php echo esc_attr($shift['shift_start_time']); ?>" class="shift-time-input" required>
+                                                            <input type="time" name="shifts[<?php echo esc_attr($emp_username); ?>][<?php echo esc_attr($date); ?>][<?php echo esc_attr($shift_key); ?>][start]" value="<?php echo esc_attr($shift['shift_start_time']); ?>" class="shift-time-input" required>
                                                             <span>to</span>
-                                                            <input type="time" name="shifts[<?php echo esc_attr($emp_username); ?>][<?php echo esc_attr($date); ?>][<?php echo esc_attr($unique_key); ?>][end]" value="<?php echo esc_attr($shift['shift_end_time']); ?>" class="shift-time-input" required>
+                                                            <input type="time" name="shifts[<?php echo esc_attr($emp_username); ?>][<?php echo esc_attr($date); ?>][<?php echo esc_attr($shift_key); ?>][end]" value="<?php echo esc_attr($shift['shift_end_time']); ?>" class="shift-time-input" required>
                                                         </div>
                                                         <div class="edit-shift-corp">
-                                                            <select name="shifts[<?php echo esc_attr($emp_username); ?>][<?php echo esc_attr($date); ?>][<?php echo esc_attr($unique_key); ?>][corp]" class="shift-corp-select">
+                                                            <select name="shifts[<?php echo esc_attr($emp_username); ?>][<?php echo esc_attr($date); ?>][<?php echo esc_attr($shift_key); ?>][corp]" class="shift-corp-select">
                                                                 <option value="">No Corporate Account</option>
                                                                 <?php foreach ($corp_accounts as $corp): ?>
                                                                 <option value="<?php echo esc_attr($corp['username']); ?>" <?php selected($shift['corp_acc_username'] ?? '', $corp['username']); ?>>
@@ -870,7 +875,7 @@ function render_editable_weekly_shift_table($atts, $employees, $corp_accounts, $
                                                                 <?php endforeach; ?>
                                                             </select>
                                                             <?php if ($atts['allow_delete'] === 'yes'): ?>
-                                                            <button type="button" class="remove-shift-btn" onclick="removeShiftEntry(this)" title="Remove Shift">✕</button>
+                                                            <button type="button" class="remove-shift-btn" onclick="removeShiftEntry(this, true)" title="Remove Shift">✕</button>
                                                             <?php endif; ?>
                                                         </div>
                                                         <?php if ($is_overnight): ?>
@@ -1041,6 +1046,7 @@ function render_editable_weekly_shift_table($atts, $employees, $corp_accounts, $
             
             template.innerHTML = `
                 <input type="hidden" name="shifts[${employee}][${date}][${uniqueKey}][id]" value="">
+                <input type="hidden" name="shifts[${employee}][${date}][${uniqueKey}][is_existing]" value="0">
                 <div class="edit-shift-row">
                     <input type="time" name="shifts[${employee}][${date}][${uniqueKey}][start]" value="09:00" class="shift-time-input" required>
                     <span>to</span>
@@ -1051,7 +1057,7 @@ function render_editable_weekly_shift_table($atts, $employees, $corp_accounts, $
                         <option value="">No Corporate Account</option>
                         ${corpOptions}
                     </select>
-                    <button type="button" class="remove-shift-btn" onclick="removeShiftEntry(this)" title="Remove Shift">✕</button>
+                    <button type="button" class="remove-shift-btn" onclick="removeShiftEntry(this, false)" title="Remove Shift">✕</button>
                 </div>
             `;
             
@@ -1067,10 +1073,21 @@ function render_editable_weekly_shift_table($atts, $employees, $corp_accounts, $
             template.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
         
-        function removeShiftEntry(button) {
+        function removeShiftEntry(button, isExisting) {
             if (confirm('Are you sure you want to remove this shift?')) {
                 const entry = button.closest('.edit-shift-entry');
                 const container = entry.parentNode;
+                
+                // If it's an existing shift, add a hidden input to mark it for deletion
+                if (isExisting) {
+                    const shiftId = entry.getAttribute('data-shift-id');
+                    const deleteInput = document.createElement('input');
+                    deleteInput.type = 'hidden';
+                    deleteInput.name = `delete_shifts[]`;
+                    deleteInput.value = shiftId;
+                    document.getElementById('shift-edit-form').appendChild(deleteInput);
+                }
+                
                 entry.remove();
                 
                 // Check if container is empty
@@ -1107,8 +1124,15 @@ function render_editable_weekly_shift_table($atts, $employees, $corp_accounts, $
             
             // Count total shifts being saved
             const shiftCount = document.querySelectorAll('.edit-shift-entry').length;
+            const deleteInputs = document.querySelectorAll('input[name="delete_shifts[]"]').length;
             
-            if (confirm(`Save all changes? (${shiftCount} shift${shiftCount !== 1 ? 's' : ''} will be saved)`)) {
+            let message = `Save changes? (${shiftCount} shift${shiftCount !== 1 ? 's' : ''} will be saved`;
+            if (deleteInputs > 0) {
+                message += `, ${deleteInputs} shift${deleteInputs !== 1 ? 's' : ''} will be deleted`;
+            }
+            message += ')';
+            
+            if (confirm(message)) {
                 document.getElementById('shift-edit-form').submit();
             }
         }
@@ -1147,58 +1171,99 @@ function cms_handle_shift_management_actions() {
         
         $table = $wpdb->prefix . 'cms_shift_management';
         
-        // First, delete all shifts for this week to start fresh
-        // This prevents orphaned shifts and ensures clean slate
-        $wpdb->query($wpdb->prepare(
-            "DELETE FROM $table WHERE date BETWEEN %s AND %s",
-            $week_start,
-            $week_end
-        ));
+        // Start transaction
+        $wpdb->query('START TRANSACTION');
         
-        $insert_count = 0;
-        
-        // Process shifts data
-        if (isset($_POST['shifts']) && is_array($_POST['shifts'])) {
-            foreach ($_POST['shifts'] as $emp_username => $dates) {
-                foreach ($dates as $date => $shifts) {
-                    // Validate date is within the week
-                    if ($date < $week_start || $date > $week_end) {
-                        continue;
-                    }
-                    
-                    // Insert new shifts
-                    if (is_array($shifts)) {
-                        foreach ($shifts as $shift_key => $shift) {
-                            // Skip empty shifts (where user added but didn't fill times)
-                            if (empty($shift['start']) || empty($shift['end'])) {
-                                continue;
-                            }
-                            
-                            $result = $wpdb->insert(
-                                $table,
-                                array(
+        try {
+            $insert_count = 0;
+            $update_count = 0;
+            $delete_count = 0;
+            
+            // Handle deletions first
+            if (isset($_POST['delete_shifts']) && is_array($_POST['delete_shifts'])) {
+                $delete_ids = array_map('intval', $_POST['delete_shifts']);
+                if (!empty($delete_ids)) {
+                    $ids_placeholder = implode(',', array_fill(0, count($delete_ids), '%d'));
+                    $wpdb->query($wpdb->prepare(
+                        "DELETE FROM $table WHERE id IN ($ids_placeholder)",
+                        $delete_ids
+                    ));
+                    $delete_count = count($delete_ids);
+                }
+            }
+            
+            // Process shifts data
+            if (isset($_POST['shifts']) && is_array($_POST['shifts'])) {
+                foreach ($_POST['shifts'] as $emp_username => $dates) {
+                    foreach ($dates as $date => $shifts) {
+                        // Validate date is within the week
+                        if ($date < $week_start || $date > $week_end) {
+                            continue;
+                        }
+                        
+                        // Insert/Update shifts
+                        if (is_array($shifts)) {
+                            foreach ($shifts as $shift_key => $shift) {
+                                // Skip empty shifts (where user added but didn't fill times)
+                                if (empty($shift['start']) || empty($shift['end'])) {
+                                    continue;
+                                }
+                                
+                                $shift_id = !empty($shift['id']) ? intval($shift['id']) : 0;
+                                $is_existing = isset($shift['is_existing']) && $shift['is_existing'] == '1';
+                                
+                                $data = array(
                                     'emp_username' => sanitize_text_field($emp_username),
                                     'date' => sanitize_text_field($date),
                                     'shift_start_time' => sanitize_text_field($shift['start']),
                                     'shift_end_time' => sanitize_text_field($shift['end']),
                                     'corp_acc_username' => !empty($shift['corp']) ? sanitize_text_field($shift['corp']) : null,
-                                    'created_at' => current_time('mysql')
-                                ),
-                                array('%s', '%s', '%s', '%s', '%s', '%s')
-                            );
-                            
-                            if ($result) {
-                                $insert_count++;
+                                );
+                                
+                                if ($shift_id > 0 && $is_existing) {
+                                    // Update existing shift
+                                    $result = $wpdb->update(
+                                        $table,
+                                        $data,
+                                        array('id' => $shift_id),
+                                        array('%s', '%s', '%s', '%s', '%s'),
+                                        array('%d')
+                                    );
+                                    if ($result !== false) {
+                                        $update_count++;
+                                    }
+                                } else {
+                                    // Insert new shift
+                                    $data['created_at'] = current_time('mysql');
+                                    $result = $wpdb->insert(
+                                        $table,
+                                        $data,
+                                        array('%s', '%s', '%s', '%s', '%s', '%s')
+                                    );
+                                    if ($result) {
+                                        $insert_count++;
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
+            
+            // Commit transaction
+            $wpdb->query('COMMIT');
+            
+            // Add counts to redirect URL
+            $redirect_url = add_query_arg('shifts_saved', '1', $redirect_url);
+            $redirect_url = add_query_arg('insert_count', $insert_count, $redirect_url);
+            $redirect_url = add_query_arg('update_count', $update_count, $redirect_url);
+            $redirect_url = add_query_arg('delete_count', $delete_count, $redirect_url);
+            
+        } catch (Exception $e) {
+            $wpdb->query('ROLLBACK');
+            error_log('CMS Shift Management Error: ' . $e->getMessage());
+            $redirect_url = add_query_arg('shifts_saved', '0', $redirect_url);
         }
-        
-        // Add count to redirect URL for debugging
-        $redirect_url = add_query_arg('shifts_saved', '1', $redirect_url);
-        $redirect_url = add_query_arg('shift_count', $insert_count, $redirect_url);
         
         wp_redirect($redirect_url);
         exit;
