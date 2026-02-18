@@ -1,10 +1,10 @@
 <?php
 /**
  * CMS Admin Form Shortcode
- * Complete form for Admin registration/profile
+ * Complete form for Admin registration/profile with database integration
  * 
  * Fields: username, name, email, father_name, contact_num, emergency_cno, 
- *         ref1_name, ref1_cno, ref2_name, ref2_cno, position
+ *         ref1_name, ref1_cno, ref2_name, ref2_cno, position, password
  * 
  * Usage: [cms_admin_form]
  * Usage: [cms_admin_form title="Register as Admin" button_text="Submit Application"]
@@ -20,6 +20,7 @@ if (!defined('CMS_ADMIN_CREATE_SHORTCODE')) {
     define('CMS_ADMIN_CREATE_SHORTCODE', 'cms_admin_create');
 }
 
+
 /**
  * Admin Form Shortcode
  */
@@ -30,10 +31,11 @@ function cms_admin_form_shortcode($atts) {
             'title' => 'Admin Registration',
             'description' => 'Please fill in all the details below to register as Admin.',
             'button_text' => 'Register Admin',
-            'success_message' => 'Admin registration submitted successfully!',
+            'success_message' => 'Admin registered successfully!',
             'class' => '',
             'show_labels' => 'yes',
-            'required_field_mark' => '*'
+            'required_field_mark' => '*',
+            'redirect_url' => '/admin-list'
         ),
         $atts,
         'cms_admin_form'
@@ -43,7 +45,7 @@ function cms_admin_form_shortcode($atts) {
     ?>
     
     <style>
-    /* Admin Form Styles - Reuse similar styles from main admin */
+    /* Admin Form Styles */
     .cms-admin2-form-container {
         max-width: 900px;
         margin: 30px auto;
@@ -184,6 +186,23 @@ function cms_admin_form_shortcode($atts) {
         color: #34495e;
     }
     
+    .cms-password-strength {
+        margin-top: 8px;
+        font-size: 12px;
+    }
+    
+    .cms-password-strength.weak {
+        color: #e74c3c;
+    }
+    
+    .cms-password-strength.medium {
+        color: #f39c12;
+    }
+    
+    .cms-password-strength.strong {
+        color: #27ae60;
+    }
+    
     .cms-submit2-section {
         text-align: center;
         margin-top: 20px;
@@ -212,6 +231,13 @@ function cms_admin_form_shortcode($atts) {
     
     .cms-submit2-button:active {
         transform: translateY(0);
+    }
+    
+    .cms-submit2-button:disabled {
+        background: #95a5a6;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
     }
     
     .cms-message2 {
@@ -306,19 +332,27 @@ function cms_admin_form_shortcode($atts) {
         <?php
         // Display messages
         if (isset($_GET['admin_reg']) && $_GET['admin_reg'] === 'success') {
-            echo '<div class="cms-message2 success">' . esc_html($atts['success_message']) . '</div>';
+            $username = isset($_GET['username']) ? urldecode($_GET['username']) : '';
+            $message = esc_html($atts['success_message']);
+            if ($username) {
+                $message .= ' Username: <strong>' . esc_html($username) . '</strong>';
+            }
+            echo '<div class="cms-message2 success">' . $message . '</div>';
+            
+            // Auto redirect after 3 seconds
+            if (!empty($atts['redirect_url'])) {
+                echo '<script>setTimeout(function() { window.location.href = "' . esc_url(home_url($atts['redirect_url'])) . '"; }, 3000);</script>';
+            }
         }
         
         if (isset($_GET['admin_reg']) && $_GET['admin_reg'] === 'error') {
-            echo '<div class="cms-message2 error">Registration failed. Please try again.</div>';
-        }
-        
-        if (isset($_GET['admin_reg']) && $_GET['admin_reg'] === 'validation') {
-            echo '<div class="cms-message2 error">Please fill all required fields correctly.</div>';
+            $error_msg = isset($_GET['error_msg']) ? urldecode($_GET['error_msg']) : 'Registration failed. Please try again.';
+            echo '<div class="cms-message2 error">' . esc_html($error_msg) . '</div>';
         }
         ?>
         
-        <form method="post" action="" class="cms-admin2-form" enctype="multipart/form-data">
+        <form method="post" action="" class="cms-admin2-form" id="cms-admin-create-form">
+            <?php wp_nonce_field('cms_admin_registration', 'cms_admin_nonce'); ?>
             
             <!-- Personal Information Section -->
             <div class="cms-admin2-section">
@@ -341,6 +375,7 @@ function cms_admin_form_shortcode($atts) {
                             pattern="[a-zA-Z0-9_]{3,20}"
                             title="Username must be 3-20 characters, can contain letters, numbers and underscores"
                         >
+                        <div id="username-check" class="cms-error2-text" style="display:none;"></div>
                     </div>
                     
                     <!-- Full Name -->
@@ -372,6 +407,7 @@ function cms_admin_form_shortcode($atts) {
                             required
                             autocomplete="email"
                         >
+                        <div id="email-check" class="cms-error2-text" style="display:none;"></div>
                     </div>
                     
                     <!-- Father's Name -->
@@ -462,6 +498,47 @@ function cms_admin_form_shortcode($atts) {
                 </div>
             </div>
             
+            <!-- Account Security Section -->
+            <div class="cms-admin2-section">
+                <h3 class="cms-section2-title">Account Security</h3>
+                
+                <div class="cms-form2-grid">
+                    <!-- Password -->
+                    <div class="cms-form2-group">
+                        <label for="cms-password2">
+                            Password <?php if($atts['required_field_mark']) echo '<span class="cms-required2">' . esc_html($atts['required_field_mark']) . '</span>'; ?>
+                        </label>
+                        <input 
+                            type="password" 
+                            id="cms-password2" 
+                            name="cms_password" 
+                            class="cms-form2-control" 
+                            placeholder="Enter password"
+                            required
+                            minlength="8"
+                            pattern="(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{8,}"
+                            title="Must contain at least one number, one uppercase and lowercase letter, and at least 8 characters"
+                        >
+                        <div id="password-strength" class="cms-password-strength"></div>
+                    </div>
+                    
+                    <!-- Confirm Password -->
+                    <div class="cms-form2-group">
+                        <label for="cms-confirm-password2">
+                            Confirm Password <?php if($atts['required_field_mark']) echo '<span class="cms-required2">' . esc_html($atts['required_field_mark']) . '</span>'; ?>
+                        </label>
+                        <input 
+                            type="password" 
+                            id="cms-confirm-password2" 
+                            name="cms_confirm_password" 
+                            class="cms-form2-control" 
+                            placeholder="Confirm password"
+                            required
+                        >
+                    </div>
+                </div>
+            </div>
+            
             <!-- Reference Information Section -->
             <div class="cms-admin2-section">
                 <h3 class="cms-section2-title">Reference Information</h3>
@@ -545,49 +622,191 @@ function cms_admin_form_shortcode($atts) {
     
     <script>
     jQuery(document).ready(function($) {
-        // Form validation
-        $('.cms-admin2-form').on('submit', function(e) {
-            var isValid = true;
+        // Password strength indicator
+        $('#cms-password2').on('keyup', function() {
+            var password = $(this).val();
+            var strength = checkPasswordStrength(password);
+            var strengthText = $('#password-strength');
             
+            if (password.length === 0) {
+                strengthText.text('');
+                strengthText.removeClass('weak medium strong');
+            } else if (strength < 3) {
+                strengthText.text('Weak password');
+                strengthText.removeClass('medium strong').addClass('weak');
+            } else if (strength < 4) {
+                strengthText.text('Medium password');
+                strengthText.removeClass('weak strong').addClass('medium');
+            } else {
+                strengthText.text('Strong password');
+                strengthText.removeClass('weak medium').addClass('strong');
+            }
+        });
+        
+        function checkPasswordStrength(password) {
+            var strength = 0;
+            
+            // Length check
+            if (password.length >= 8) strength++;
+            if (password.length >= 10) strength++;
+            
+            // Contains number
+            if (password.match(/\d/)) strength++;
+            
+            // Contains lowercase
+            if (password.match(/[a-z]/)) strength++;
+            
+            // Contains uppercase
+            if (password.match(/[A-Z]/)) strength++;
+            
+            // Contains special character
+            if (password.match(/[^a-zA-Z0-9]/)) strength++;
+            
+            return strength;
+        }
+        
+        // Username availability check
+        var usernameTimer;
+        $('#cms-username2').on('keyup', function() {
+            clearTimeout(usernameTimer);
+            var username = $(this).val();
+            
+            if (username.length >= 3) {
+                usernameTimer = setTimeout(function() {
+                    $.ajax({
+                        url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                        type: 'POST',
+                        data: {
+                            action: 'cms_check_username',
+                            username: username,
+                            nonce: '<?php echo wp_create_nonce('cms_check_username'); ?>'
+                        },
+                        success: function(response) {
+                            if (response.data.exists) {
+                                $('#cms-username2').addClass('error');
+                                $('#username-check').text('Username already exists').show();
+                            } else {
+                                $('#cms-username2').removeClass('error');
+                                $('#username-check').hide();
+                            }
+                        }
+                    });
+                }, 500);
+            }
+        });
+        
+        // Email availability check
+        var emailTimer;
+        $('#cms-email2').on('keyup', function() {
+            clearTimeout(emailTimer);
+            var email = $(this).val();
+            
+            if (email.length >= 5 && email.includes('@')) {
+                emailTimer = setTimeout(function() {
+                    $.ajax({
+                        url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                        type: 'POST',
+                        data: {
+                            action: 'cms_check_email',
+                            email: email,
+                            nonce: '<?php echo wp_create_nonce('cms_check_email'); ?>'
+                        },
+                        success: function(response) {
+                            if (response.data.exists) {
+                                $('#cms-email2').addClass('error');
+                                $('#email-check').text('Email already exists').show();
+                            } else {
+                                $('#cms-email2').removeClass('error');
+                                $('#email-check').hide();
+                            }
+                        }
+                    });
+                }, 500);
+            }
+        });
+        
+        // Form validation
+        $('#cms-admin-create-form').on('submit', function(e) {
+            var isValid = true;
+            var errorMessages = [];
+            
+            // Check required fields
             $(this).find('[required]').each(function() {
                 if (!$(this).val()) {
                     $(this).addClass('error');
                     isValid = false;
+                    var fieldName = $(this).attr('name') || 'field';
+                    errorMessages.push(fieldName + ' is required');
                 } else {
                     $(this).removeClass('error');
                 }
             });
             
+            // Validate email
             var email = $('#cms-email2');
             var emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             if (email.val() && !emailPattern.test(email.val())) {
                 email.addClass('error');
                 isValid = false;
+                errorMessages.push('Invalid email format');
             }
             
+            // Validate phone numbers
             $('input[type="tel"]').each(function() {
                 var phone = $(this).val();
                 var phonePattern = /^[0-9]{10,15}$/;
                 if (phone && !phonePattern.test(phone.replace(/\D/g, ''))) {
                     $(this).addClass('error');
                     isValid = false;
+                    errorMessages.push('Invalid phone number format');
                 }
             });
             
+            // Validate username
             var username = $('#cms-username2');
             var usernamePattern = /^[a-zA-Z0-9_]{3,20}$/;
             if (username.val() && !usernamePattern.test(username.val())) {
                 username.addClass('error');
                 isValid = false;
+                errorMessages.push('Username must be 3-20 characters and can only contain letters, numbers, and underscores');
+            }
+            
+            // Check if username already exists
+            if ($('#username-check').is(':visible')) {
+                isValid = false;
+                errorMessages.push('Username already exists');
+            }
+            
+            // Check if email already exists
+            if ($('#email-check').is(':visible')) {
+                isValid = false;
+                errorMessages.push('Email already exists');
+            }
+            
+            // Validate password
+            var password = $('#cms-password2').val();
+            var confirmPassword = $('#cms-confirm-password2').val();
+            var passwordPattern = /(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{8,}/;
+            
+            if (!passwordPattern.test(password)) {
+                $('#cms-password2').addClass('error');
+                isValid = false;
+                errorMessages.push('Password must contain at least one number, one uppercase and lowercase letter, and be at least 8 characters long');
+            }
+            
+            if (password !== confirmPassword) {
+                $('#cms-confirm-password2').addClass('error');
+                isValid = false;
+                errorMessages.push('Passwords do not match');
             }
             
             if (!isValid) {
                 e.preventDefault();
-                alert('Please fill all fields correctly.');
+                alert('Please fix the following errors:\n- ' + errorMessages.join('\n- '));
                 return false;
             }
             
-            $(this).find('.cms-submit2-button').addClass('loading');
+            $(this).find('.cms-submit2-button').prop('disabled', true).text('Processing...');
         });
         
         $('.cms-form2-control').on('input', function() {
@@ -613,33 +832,212 @@ add_shortcode('cms_admin_form', 'cms_admin_form_shortcode');
 add_shortcode(CMS_ADMIN_CREATE_SHORTCODE, 'cms_admin_form_shortcode');
 
 /**
- * Handle Admin Form Submission
+ * Handle Admin Form Submission with Database Integration
  */
-function cms_handle_admin_submission() {
+function cms_handle_admin_create_submission() {
     if (isset($_POST['cms_admin2_submit'])) {
         
-        $admin_data = array(
-            'username' => sanitize_user($_POST['cms_username']),
-            'fullname' => sanitize_text_field($_POST['cms_fullname']),
-            'email' => sanitize_email($_POST['cms_email']),
-            'fathername' => sanitize_text_field($_POST['cms_fathername']),
-            'position' => sanitize_text_field($_POST['cms_position']),
-            'country_code' => sanitize_text_field($_POST['cms_country_code']),
-            'contact' => preg_replace('/[^0-9]/', '', $_POST['cms_contact']),
-            'emergency_code' => sanitize_text_field($_POST['cms_emergency_code']),
-            'emergency' => preg_replace('/[^0-9]/', '', $_POST['cms_emergency']),
-            'ref1_name' => sanitize_text_field($_POST['cms_ref1_name']),
-            'ref1_cno' => preg_replace('/[^0-9]/', '', $_POST['cms_ref1_cno']),
-            'ref2_name' => sanitize_text_field($_POST['cms_ref2_name']),
-            'ref2_cno' => preg_replace('/[^0-9]/', '', $_POST['cms_ref2_cno']),
-            'submitted_at' => current_time('mysql'),
-            'status' => 'pending'
-        );
+        // Verify nonce
+        if (!isset($_POST['cms_admin_nonce']) || !wp_verify_nonce($_POST['cms_admin_nonce'], 'cms_admin_registration')) {
+            wp_redirect(add_query_arg('admin_reg', 'error', wp_get_referer()));
+            exit;
+        }
         
-        wp_redirect(add_query_arg('admin_reg', 'success', wp_get_referer()));
-        exit;
+        global $wpdb;
+        
+        // Sanitize and validate input
+        $username = sanitize_user($_POST['cms_username']);
+        $email = sanitize_email($_POST['cms_email']);
+        $password = $_POST['cms_password']; // Don't sanitize password
+        $confirm_password = $_POST['cms_confirm_password'];
+        $fullname = sanitize_text_field($_POST['cms_fullname']);
+        $fathername = sanitize_text_field($_POST['cms_fathername']);
+        $position = sanitize_text_field($_POST['cms_position']);
+        $country_code = sanitize_text_field($_POST['cms_country_code']);
+        $contact = preg_replace('/[^0-9]/', '', $_POST['cms_contact']);
+        $emergency_code = sanitize_text_field($_POST['cms_emergency_code']);
+        $emergency = preg_replace('/[^0-9]/', '', $_POST['cms_emergency']);
+        $ref1_name = sanitize_text_field($_POST['cms_ref1_name']);
+        $ref1_cno = preg_replace('/[^0-9]/', '', $_POST['cms_ref1_cno']);
+        $ref2_name = sanitize_text_field($_POST['cms_ref2_name']);
+        $ref2_cno = preg_replace('/[^0-9]/', '', $_POST['cms_ref2_cno']);
+        
+        // Complete phone numbers
+        $full_contact = $country_code . $contact;
+        $full_emergency = $emergency_code . $emergency;
+        $full_ref1_cno = $ref1_cno;
+        $full_ref2_cno = $ref2_cno;
+        
+        // Validation
+        $errors = array();
+        
+        // Check if username exists
+        if (cms_username_exists($username)) {
+            $errors[] = 'Username already exists';
+        }
+        
+        // Check if email exists
+        if (cms_email_exists($email)) {
+            $errors[] = 'Email already exists';
+        }
+        
+        // Validate username format
+        if (!preg_match('/^[a-zA-Z0-9_]{3,20}$/', $username)) {
+            $errors[] = 'Invalid username format';
+        }
+        
+        // Validate email
+        if (!is_email($email)) {
+            $errors[] = 'Invalid email format';
+        }
+        
+        // Validate password
+        $password_pattern = '/^(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{8,}$/';
+        if (!preg_match($password_pattern, $password)) {
+            $errors[] = 'Password must contain at least one number, one uppercase and lowercase letter, and be at least 8 characters long';
+        }
+        
+        // Check if passwords match
+        if ($password !== $confirm_password) {
+            $errors[] = 'Passwords do not match';
+        }
+        
+        // Validate phone numbers
+        if (strlen($contact) < 10 || strlen($contact) > 15) {
+            $errors[] = 'Invalid contact number';
+        }
+        
+        if (strlen($emergency) < 10 || strlen($emergency) > 15) {
+            $errors[] = 'Invalid emergency contact number';
+        }
+        
+        // Validate reference phone numbers
+        if (strlen($ref1_cno) < 10 || strlen($ref1_cno) > 15) {
+            $errors[] = 'Invalid reference 1 contact number';
+        }
+        
+        if (strlen($ref2_cno) < 10 || strlen($ref2_cno) > 15) {
+            $errors[] = 'Invalid reference 2 contact number';
+        }
+        
+        // If there are errors, redirect back with error message
+        if (!empty($errors)) {
+            $error_string = implode(', ', $errors);
+            wp_redirect(add_query_arg(
+                array(
+                    'admin_reg' => 'error',
+                    'error_msg' => urlencode($error_string)
+                ), 
+                wp_get_referer()
+            ));
+            exit;
+        }
+        
+        // Start transaction
+        $wpdb->query('START TRANSACTION');
+        
+        try {
+            // Table names
+            $table_users = $wpdb->prefix . 'cms_users';
+            $table_admin = $wpdb->prefix . 'cms_admin';
+            
+            // Hash the password
+            $hashed_password = wp_hash_password($password);
+            
+            // 1. Insert into users table
+            $user_inserted = $wpdb->insert(
+                $table_users,
+                array(
+                    'username' => $username,
+                    'password' => $hashed_password,
+                    'role' => 'admin',
+                    'status' => 'active',
+                    'created_at' => current_time('mysql')
+                ),
+                array('%s', '%s', '%s', '%s', '%s')
+            );
+            
+            if (!$user_inserted) {
+                throw new Exception('Failed to create user account');
+            }
+            
+            // 2. Insert into admin table
+            $admin_inserted = $wpdb->insert(
+                $table_admin,
+                array(
+                    'username' => $username,
+                    'name' => $fullname,
+                    'email' => $email,
+                    'father_name' => $fathername,
+                    'contact_num' => $full_contact,
+                    'emergency_cno' => $full_emergency,
+                    'ref1_name' => $ref1_name,
+                    'ref1_cno' => $full_ref1_cno,
+                    'ref2_name' => $ref2_name,
+                    'ref2_cno' => $full_ref2_cno,
+                    'position' => $position,
+                    'created_at' => current_time('mysql')
+                ),
+                array('%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s')
+            );
+            
+            if (!$admin_inserted) {
+                throw new Exception('Failed to create admin profile');
+            }
+            
+            // Commit transaction
+            $wpdb->query('COMMIT');
+            
+            // Redirect with success
+            wp_redirect(add_query_arg(
+                array(
+                    'admin_reg' => 'success',
+                    'username' => urlencode($username)
+                ), 
+                wp_get_referer()
+            ));
+            exit;
+            
+        } catch (Exception $e) {
+            // Rollback transaction on error
+            $wpdb->query('ROLLBACK');
+            
+            error_log('CMS Admin Creation Error: ' . $e->getMessage());
+            
+            wp_redirect(add_query_arg(
+                array(
+                    'admin_reg' => 'error',
+                    'error_msg' => urlencode('Registration failed: ' . $e->getMessage())
+                ), 
+                wp_get_referer()
+            ));
+            exit;
+        }
     }
 }
-add_action('init', 'cms_handle_admin_submission');
+add_action('init', 'cms_handle_admin_create_submission');
 
-?>
+/**
+ * AJAX handlers for username and email checks
+ */
+function cms_ajax_check_username() {
+    check_ajax_referer('cms_check_username', 'nonce');
+    
+    $username = sanitize_user($_POST['username']);
+    $exists = cms_username_exists($username);
+    
+    wp_send_json_success(array('exists' => $exists));
+}
+add_action('wp_ajax_cms_check_username', 'cms_ajax_check_username');
+add_action('wp_ajax_nopriv_cms_check_username', 'cms_ajax_check_username');
+
+function cms_ajax_check_email() {
+    check_ajax_referer('cms_check_email', 'nonce');
+    
+    $email = sanitize_email($_POST['email']);
+    $exists = cms_email_exists($email);
+    
+    wp_send_json_success(array('exists' => $exists));
+}
+add_action('wp_ajax_cms_check_email', 'cms_ajax_check_email');
+add_action('wp_ajax_nopriv_cms_check_email', 'cms_ajax_check_email');

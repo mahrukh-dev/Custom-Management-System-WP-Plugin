@@ -47,6 +47,8 @@ if (!defined('CMS_PLUGIN_DB_VER')) {
 //helpers
 // Include helper functions
 require_once plugin_dir_path(__FILE__) . 'includes/misc/helpers.php';
+require_once plugin_dir_path(__FILE__) . 'includes/misc/cms_admin_common.php';
+
 // include shortcodes
 //require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes.php';
 //auth shortcodes

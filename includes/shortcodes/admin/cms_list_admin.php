@@ -1,7 +1,7 @@
 <?php
 /**
  * CMS List Admin Shortcode
- * Display all admins in a table with actions (View, Update, Delete)
+ * Display all admins from database in a table with actions (View, Update, Delete)
  * 
  * Usage: [cms_list_admin]
  * Usage: [cms_list_admin items_per_page="10" show_search="yes"]
@@ -17,6 +17,10 @@ if (!defined('CMS_ADMIN_LIST_SHORTCODE')) {
     define('CMS_ADMIN_LIST_SHORTCODE', 'cms_admin_list');
 }
 
+
+/**
+ * List Admin Shortcode
+ */
 function cms_list_admin_shortcode($atts) {
     $atts = shortcode_atts(
         array(
@@ -29,23 +33,80 @@ function cms_list_admin_shortcode($atts) {
             'create_page' => 'add-admin2',
             'edit_page' => 'edit-admin2',
             'view_page' => 'view-admin2',
+            'delete_action' => 'soft' // soft or hard
         ),
         $atts,
         'cms_list_admin'
     );
     
-    $create_url = home_url($atts['create_page']);
-    $edit_base = home_url($atts['edit_page']);
-    $view_base = home_url($atts['view_page']);
-
-    ob_start();
+    // Get current page
+    $current_page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
+    $offset = ($current_page - 1) * $atts['items_per_page'];
     
-    $admin_data = get_cms_mock_admin2_data();
+    // Get filters from URL
+    $search = isset($_GET['search']) ? sanitize_text_field($_GET['search']) : '';
+    $status_filter = isset($_GET['status']) ? sanitize_text_field($_GET['status']) : '';
+    $position_filter = isset($_GET['position']) ? sanitize_text_field($_GET['position']) : '';
+    $sort_by = isset($_GET['sort']) ? sanitize_text_field($_GET['sort']) : 'newest';
+    
+    // Build order by
+    $orderby = 'a.created_at';
+    $order = 'DESC';
+    
+    switch ($sort_by) {
+        case 'oldest':
+            $orderby = 'a.created_at';
+            $order = 'ASC';
+            break;
+        case 'name':
+            $orderby = 'a.name';
+            $order = 'ASC';
+            break;
+        case 'newest':
+        default:
+            $orderby = 'a.created_at';
+            $order = 'DESC';
+            break;
+    }
+    
+    // Get data from database
+    $result = cms_get_all_admins(array(
+        'status' => $status_filter,
+        'position' => $position_filter,
+        'search' => $search,
+        'orderby' => $orderby,
+        'order' => $order,
+        'limit' => $atts['items_per_page'],
+        'offset' => $offset
+    ));
+    
+    $admin_data = $result['items'];
+    $total_pages = $result['pages'];
+    $total_items = $result['total'];
+    
+    // Handle delete action via AJAX - make sure this is unique
+if (isset($_POST['cms_admin_ajax_delete']) && isset($_POST['admin_id'])) {
+    $admin_id = intval($_POST['admin_id']);
+    $hard_delete = ($atts['delete_action'] === 'hard');
+    $deleted = cms_delete_admin_by_id($admin_id, $hard_delete);
+    
+    if ($deleted) {
+        wp_send_json_success(array('message' => 'Admin deleted successfully'));
+    } else {
+        wp_send_json_error(array('message' => 'Failed to delete admin'));
+    }
+    exit;
+}
+    
+    // Build URLs
+    $create_url = home_url($atts['create_page']);
+    
+    ob_start();
     ?>
     
     <style>
     .cms-admin2-list-container {
-        max-width: 1200px;
+        max-width: 1400px;
         margin: 30px auto;
         background: #ffffff;
         border-radius: 16px;
@@ -74,8 +135,29 @@ function cms_list_admin_shortcode($atts) {
     }
     
     .cms-list2-title:before {
-        content: '👤';
+        content: '👥';
         font-size: 28px;
+    }
+    
+    .cms-create2-button {
+        padding: 12px 24px;
+        background: linear-gradient(145deg, #27ae60, #219a52);
+        color: white;
+        border: none;
+        border-radius: 40px;
+        font-size: 14px;
+        font-weight: 600;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.3s ease;
+    }
+    
+    .cms-create2-button:hover {
+        background: linear-gradient(145deg, #219a52, #1e8449);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(39,174,96,0.2);
     }
     
     .cms-search2-box {
@@ -136,9 +218,33 @@ function cms_list_admin_shortcode($atts) {
         font-size: 14px;
     }
     
+    .cms-filter2-select:focus {
+        outline: none;
+        border-color: #27ae60;
+    }
+    
+    .cms-reset2-filters {
+        padding: 10px 20px;
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        color: #4a5568;
+        text-decoration: none;
+        font-size: 14px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+    }
+    
+    .cms-reset2-filters:hover {
+        background: #edf2f7;
+    }
+    
     .cms-table2-responsive {
         overflow-x: auto;
         margin-bottom: 25px;
+        border-radius: 12px;
+        border: 1px solid #e9edf2;
     }
     
     .cms-admin2-table {
@@ -179,6 +285,7 @@ function cms_list_admin_shortcode($atts) {
         justify-content: center;
         font-weight: 600;
         font-size: 16px;
+        text-transform: uppercase;
     }
     
     .cms-admin2-info {
@@ -214,6 +321,7 @@ function cms_list_admin_shortcode($atts) {
         border-radius: 40px;
         font-size: 12px;
         font-weight: 500;
+        text-transform: capitalize;
     }
     
     .cms-badge2.active {
@@ -229,6 +337,11 @@ function cms_list_admin_shortcode($atts) {
     .cms-badge2.inactive {
         background: #ffe8e8;
         color: #b34141;
+    }
+    
+    .cms-badge2.suspended {
+        background: #f8d7da;
+        color: #721c24;
     }
     
     .cms-action2-buttons {
@@ -284,6 +397,18 @@ function cms_list_admin_shortcode($atts) {
         color: #8b2c2c;
     }
     
+    .cms-stats2-info {
+        font-size: 12px;
+        color: #718096;
+        margin-top: 4px;
+    }
+    
+    .cms-last2-login {
+        font-size: 11px;
+        color: #a0b3c2;
+        margin-top: 2px;
+    }
+    
     .cms-pagination2 {
         display: flex;
         justify-content: center;
@@ -316,6 +441,23 @@ function cms_list_admin_shortcode($atts) {
         border-color: #27ae60;
     }
     
+    .cms-page2-link.disabled {
+        opacity: 0.5;
+        pointer-events: none;
+    }
+    
+    .cms-summary2 {
+        margin-top: 20px;
+        padding: 15px;
+        background: #f8fafc;
+        border-radius: 8px;
+        font-size: 14px;
+        color: #4a5568;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
     .cms-no2-data {
         text-align: center;
         padding: 60px 20px;
@@ -326,11 +468,110 @@ function cms_list_admin_shortcode($atts) {
     }
     
     .cms-no2-data:before {
-        content: '👤';
+        content: '👥';
         display: block;
         font-size: 48px;
         margin-bottom: 15px;
         opacity: 0.5;
+    }
+    
+    .cms-modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        z-index: 9999;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .cms-modal-content {
+        background: white;
+        padding: 30px;
+        border-radius: 16px;
+        max-width: 500px;
+        width: 90%;
+        animation: modalSlideIn 0.3s ease;
+    }
+    
+    @keyframes modalSlideIn {
+        from {
+            transform: translateY(-20px);
+            opacity: 0;
+        }
+        to {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+    
+    .cms-modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        padding-bottom: 15px;
+        border-bottom: 2px solid #e2e8f0;
+    }
+    
+    .cms-modal-header h3 {
+        margin: 0;
+        color: #e74c3c;
+    }
+    
+    .cms-modal-close {
+        background: none;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+        color: #718096;
+    }
+    
+    .cms-modal-body {
+        padding: 20px 0;
+    }
+    
+    .cms-modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        padding-top: 20px;
+        border-top: 1px solid #e2e8f0;
+    }
+    
+    .cms-modal-btn {
+        padding: 12px 24px;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.2s ease;
+    }
+    
+    .cms-modal-btn.cancel {
+        background: #e2e8f0;
+        color: #4a5568;
+    }
+    
+    .cms-modal-btn.cancel:hover {
+        background: #cbd5e0;
+    }
+    
+    .cms-modal-btn.delete {
+        background: #e74c3c;
+        color: white;
+    }
+    
+    .cms-modal-btn.delete:hover {
+        background: #c0392b;
+    }
+    
+    .cms-modal-btn.delete:disabled {
+        background: #95a5a6;
+        cursor: not-allowed;
     }
     
     @media (max-width: 768px) {
@@ -346,6 +587,14 @@ function cms_list_admin_shortcode($atts) {
         .cms-search2-input {
             width: 100%;
         }
+        
+        .cms-filters2 {
+            flex-direction: column;
+        }
+        
+        .cms-filter2-select {
+            width: 100%;
+        }
     }
     </style>
     
@@ -354,41 +603,71 @@ function cms_list_admin_shortcode($atts) {
         <div class="cms-list2-header">
             <h2 class="cms-list2-title">Admin Management</h2>
             
-            <?php if ($atts['show_search'] === 'yes'): ?>
-            <div class="cms-search2-box">
-                <input type="text" id="cms-admin2-search" class="cms-search2-input" placeholder="Search by name, email or username...">
-                <button class="cms-search2-button">Search</button>
+            <div style="display: flex; gap: 10px;">
+                <?php if ($atts['show_search'] === 'yes'): ?>
+                <form method="get" class="cms-search2-box">
+                    <?php 
+                    // Preserve other query parameters
+                    foreach ($_GET as $key => $value) {
+                        if ($key !== 'search' && $key !== 'paged') {
+                            echo '<input type="hidden" name="' . esc_attr($key) . '" value="' . esc_attr($value) . '">';
+                        }
+                    }
+                    ?>
+                    <input type="text" name="search" class="cms-search2-input" 
+                           placeholder="Search by name, email or username..." 
+                           value="<?php echo esc_attr($search); ?>">
+                    <button type="submit" class="cms-search2-button">Search</button>
+                </form>
+                <?php endif; ?>
+                
+                <a href="<?php echo esc_url($create_url); ?>" class="cms-create2-button">
+                    ➕ Add New Admin
+                </a>
             </div>
-            <?php endif; ?>
         </div>
         
         <?php if ($atts['show_filters'] === 'yes'): ?>
-        <div class="cms-filters2">
-            <select class="cms-filter2-select" id="filter-status">
+        <form method="get" class="cms-filters2">
+            <?php 
+            // Preserve search parameter
+            if (!empty($search)) {
+                echo '<input type="hidden" name="search" value="' . esc_attr($search) . '">';
+            }
+            ?>
+            
+            <select name="status" class="cms-filter2-select" onchange="this.form.submit()">
                 <option value="">All Status</option>
-                <option value="active">Active</option>
-                <option value="pending">Pending</option>
-                <option value="inactive">Inactive</option>
+                <option value="active" <?php selected($status_filter, 'active'); ?>>Active</option>
+                <option value="pending" <?php selected($status_filter, 'pending'); ?>>Pending</option>
+                <option value="inactive" <?php selected($status_filter, 'inactive'); ?>>Inactive</option>
+                <option value="suspended" <?php selected($status_filter, 'suspended'); ?>>Suspended</option>
             </select>
             
-            <select class="cms-filter2-select" id="filter-position">
+            <select name="position" class="cms-filter2-select" onchange="this.form.submit()">
                 <option value="">All Positions</option>
-                <option value="Senior Admin">Senior Admin</option>
-                <option value="Junior Admin">Junior Admin</option>
-                <option value="HR Admin">HR Admin</option>
-                <option value="Finance Admin">Finance Admin</option>
-                <option value="Operations Admin">Operations Admin</option>
-                <option value="Support Admin">Support Admin</option>
-                <option value="Technical Admin">Technical Admin</option>
+                <option value="Senior Admin" <?php selected($position_filter, 'Senior Admin'); ?>>Senior Admin</option>
+                <option value="Junior Admin" <?php selected($position_filter, 'Junior Admin'); ?>>Junior Admin</option>
+                <option value="HR Admin" <?php selected($position_filter, 'HR Admin'); ?>>HR Admin</option>
+                <option value="Finance Admin" <?php selected($position_filter, 'Finance Admin'); ?>>Finance Admin</option>
+                <option value="Operations Admin" <?php selected($position_filter, 'Operations Admin'); ?>>Operations Admin</option>
+                <option value="Support Admin" <?php selected($position_filter, 'Support Admin'); ?>>Support Admin</option>
+                <option value="Technical Admin" <?php selected($position_filter, 'Technical Admin'); ?>>Technical Admin</option>
             </select>
             
-            <select class="cms-filter2-select" id="sort-by">
+            <select name="sort" class="cms-filter2-select" onchange="this.form.submit()">
                 <option value="">Sort By</option>
-                <option value="newest">Newest First</option>
-                <option value="oldest">Oldest First</option>
-                <option value="name">Name A-Z</option>
+                <option value="newest" <?php selected($sort_by, 'newest'); ?>>Newest First</option>
+                <option value="oldest" <?php selected($sort_by, 'oldest'); ?>>Oldest First</option>
+                <option value="name" <?php selected($sort_by, 'name'); ?>>Name A-Z</option>
             </select>
-        </div>
+            
+            <?php if (!empty($status_filter) || !empty($position_filter) || !empty($search) || $sort_by !== 'newest'): ?>
+            <a href="<?php echo esc_url(remove_query_arg(array('status', 'position', 'search', 'sort', 'paged'))); ?>" class="cms-reset2-filters">
+                ✕ Clear Filters
+            </a>
+            <?php endif; ?>
+        </form>
         <?php endif; ?>
         
         <?php if (empty($admin_data)): ?>
@@ -408,21 +687,22 @@ function cms_list_admin_shortcode($atts) {
                         <th>Emergency</th>
                         <th>References</th>
                         <th>Status</th>
+                        <th>Last Login</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php foreach ($admin_data as $admin): ?>
-                    <tr id="admin2-row-<?php echo esc_attr($admin['id']); ?>">
+                    <tr id="admin-row-<?php echo esc_attr($admin['id']); ?>">
                         <td>
                             <div class="cms-admin2-info">
                                 <div class="cms-admin2-avatar">
-                                    <?php echo strtoupper(substr($admin['name'], 0, 1)); ?>
+                                    <?php echo esc_html(substr($admin['name'], 0, 1)); ?>
                                 </div>
                                 <div>
                                     <div class="cms-admin2-name"><?php echo esc_html($admin['name']); ?></div>
                                     <div class="cms-admin2-username">@<?php echo esc_html($admin['username']); ?></div>
-                                    <div style="font-size: 11px; color: #718096;"><?php echo esc_html($admin['email']); ?></div>
+                                    <div class="cms-stats2-info"><?php echo esc_html($admin['email']); ?></div>
                                 </div>
                             </div>
                         </td>
@@ -430,10 +710,10 @@ function cms_list_admin_shortcode($atts) {
                             <span class="cms-position-badge"><?php echo esc_html($admin['position']); ?></span>
                         </td>
                         <td>
-                            <div style="font-weight: 500;"><?php echo esc_html($admin['contact']); ?></div>
+                            <div style="font-weight: 500;"><?php echo esc_html($admin['contact_num']); ?></div>
                         </td>
                         <td><?php echo esc_html($admin['father_name']); ?></td>
-                        <td><?php echo esc_html($admin['emergency']); ?></td>
+                        <td><?php echo esc_html($admin['emergency_cno']); ?></td>
                         <td>
                             <div style="font-size: 12px;">
                                 <strong>R1:</strong> <?php echo esc_html($admin['ref1_name']); ?><br>
@@ -449,21 +729,29 @@ function cms_list_admin_shortcode($atts) {
                             </span>
                         </td>
                         <td>
+                            <?php if (!empty($admin['last_login'])): ?>
+                                <div><?php echo esc_html(date('Y-m-d', strtotime($admin['last_login']))); ?></div>
+                                <div class="cms-last2-login"><?php echo esc_html(date('H:i', strtotime($admin['last_login']))); ?></div>
+                            <?php else: ?>
+                                <span style="color: #a0b3c2;">Never</span>
+                            <?php endif; ?>
+                        </td>
+                        <td>
                             <div class="cms-action2-buttons">
                                 <?php if (strpos($atts['actions'], 'view') !== false): ?>
-                                <a href="<?php echo esc_url(home_url('view-admin2/' . $admin['id'])); ?>" class="cms-action2-btn cms-btn2-view">
+                                <a href="<?php echo esc_url(home_url($atts['view_page'] . '?admin_id=' . $admin['id'])); ?>" class="cms-action2-btn cms-btn2-view">
                                     👁️ View
                                 </a>
                                 <?php endif; ?>
                                 
                                 <?php if (strpos($atts['actions'], 'update') !== false): ?>
-                                <a href="<?php echo esc_url(home_url('edit-admin2/' . $admin['id'])); ?>" class="cms-action2-btn cms-btn2-edit">
+                                <a href="<?php echo esc_url(home_url($atts['edit_page'] . '?admin_id=' . $admin['id'])); ?>" class="cms-action2-btn cms-btn2-edit">
                                     ✏️ Update
                                 </a>
                                 <?php endif; ?>
                                 
                                 <?php if (strpos($atts['actions'], 'delete') !== false): ?>
-                                <button class="cms-action2-btn cms-btn2-delete" onclick="cmsConfirmDelete2(<?php echo esc_js($admin['id']); ?>)">
+                                <button class="cms-action2-btn cms-btn2-delete" onclick="cmsConfirmDelete(<?php echo esc_js($admin['id']); ?>, '<?php echo esc_js($admin['name']); ?>')">
                                     🗑️ Delete
                                 </button>
                                 <?php endif; ?>
@@ -475,109 +763,149 @@ function cms_list_admin_shortcode($atts) {
             </table>
         </div>
         
+        <?php if ($total_pages > 1): ?>
         <div class="cms-pagination2">
-            <a href="#" class="cms-page2-link">« Previous</a>
-            <a href="#" class="cms-page2-link active">1</a>
-            <a href="#" class="cms-page2-link">2</a>
-            <a href="#" class="cms-page2-link">3</a>
-            <a href="#" class="cms-page2-link">Next »</a>
+            <?php
+            // Build pagination links
+            $base_url = remove_query_arg('paged');
+            $base_url = add_query_arg($_GET, $base_url);
+            
+            if ($current_page > 1) {
+                $prev_url = add_query_arg('paged', $current_page - 1, $base_url);
+                echo '<a href="' . esc_url($prev_url) . '" class="cms-page2-link">« Previous</a>';
+            } else {
+                echo '<span class="cms-page2-link disabled">« Previous</span>';
+            }
+            
+            for ($i = 1; $i <= $total_pages; $i++) {
+                if ($i == $current_page) {
+                    echo '<span class="cms-page2-link active">' . $i . '</span>';
+                } else {
+                    $page_url = add_query_arg('paged', $i, $base_url);
+                    echo '<a href="' . esc_url($page_url) . '" class="cms-page2-link">' . $i . '</a>';
+                }
+            }
+            
+            if ($current_page < $total_pages) {
+                $next_url = add_query_arg('paged', $current_page + 1, $base_url);
+                echo '<a href="' . esc_url($next_url) . '" class="cms-page2-link">Next »</a>';
+            } else {
+                echo '<span class="cms-page2-link disabled">Next »</span>';
+            }
+            ?>
         </div>
+        
+        <div class="cms-summary2">
+            <span>Showing <?php echo count($admin_data); ?> of <?php echo $total_items; ?> admins</span>
+            <span>Page <?php echo $current_page; ?> of <?php echo $total_pages; ?></span>
+        </div>
+        <?php endif; ?>
         
         <?php endif; ?>
     </div>
     
     <!-- Delete Confirmation Modal -->
-    <div id="cms-delete2-modal" class="cms-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
-        <div style="background:white; padding:30px; border-radius:16px; max-width:500px; width:90%;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; padding-bottom:15px; border-bottom:2px solid #e2e8f0;">
-                <h3 style="margin:0; color:#e74c3c;">Confirm Delete</h3>
-                <button style="background:none; border:none; font-size:24px; cursor:pointer; color:#718096;" onclick="document.getElementById('cms-delete2-modal').style.display='none'">×</button>
+    <div id="cms-delete-modal" class="cms-modal">
+        <div class="cms-modal-content">
+            <div class="cms-modal-header">
+                <h3>Confirm Delete</h3>
+                <button class="cms-modal-close" onclick="closeDeleteModal()">×</button>
             </div>
-            <div style="padding:20px 0;">
-                <p style="font-size:16px; margin-bottom:20px;">Are you sure you want to delete this admin?</p>
-                <p style="color:#718096; font-size:14px;">This action cannot be undone.</p>
+            <div class="cms-modal-body">
+                <p id="delete-message">Are you sure you want to delete this admin?</p>
+                <p style="color: #e74c3c; font-size: 14px;">This action cannot be undone.</p>
             </div>
-            <div style="display:flex; justify-content:flex-end;">
-                <button style="background:#e2e8f0; color:#4a5568; padding:12px 24px; border:none; border-radius:8px; cursor:pointer; margin-left:10px;" onclick="document.getElementById('cms-delete2-modal').style.display='none'">Cancel</button>
-                <button id="cms-confirm-delete2-btn" style="background:#e74c3c; color:white; padding:12px 24px; border:none; border-radius:8px; cursor:pointer; font-weight:600;">Delete Admin</button>
+            <div class="cms-modal-footer">
+                <button class="cms-modal-btn cancel" onclick="closeDeleteModal()">Cancel</button>
+                <button id="cms-confirm-delete-btn" class="cms-modal-btn delete">Delete Admin</button>
             </div>
         </div>
     </div>
     
     <script>
-    function cmsConfirmDelete2(adminId) {
-        var modal = document.getElementById('cms-delete2-modal');
-        var confirmBtn = document.getElementById('cms-confirm-delete2-btn');
-        
-        confirmBtn.onclick = function() {
-            cmsDeleteAdmin2(adminId);
-        };
-        
+    let currentDeleteId = null;
+    
+    function cmsConfirmDelete(adminId, adminName) {
+        currentDeleteId = adminId;
+        const modal = document.getElementById('cms-delete-modal');
+        const message = document.getElementById('delete-message');
+        message.textContent = `Are you sure you want to delete "${adminName}"?`;
         modal.style.display = 'flex';
     }
     
-    function cmsDeleteAdmin2(adminId) {
-        var row = document.getElementById('admin2-row-' + adminId);
-        if (row) {
-            row.style.opacity = '0.5';
-            setTimeout(function() {
-                row.remove();
-                document.getElementById('cms-delete2-modal').style.display = 'none';
-                alert('Admin deleted successfully!');
-                
-                if (document.querySelectorAll('.cms-admin2-table tbody tr').length === 0) {
-                    location.reload();
+    function closeDeleteModal() {
+        document.getElementById('cms-delete-modal').style.display = 'none';
+        currentDeleteId = null;
+    }
+    
+    document.getElementById('cms-confirm-delete-btn').addEventListener('click', function() {
+        if (!currentDeleteId) return;
+        
+        const btn = this;
+        btn.disabled = true;
+        btn.textContent = 'Deleting...';
+        
+        // Send AJAX request to delete admin
+        const formData = new FormData();
+        formData.append('cms_admin_ajax_delete', '1');
+        formData.append('admin_id', currentDeleteId);
+        
+        fetch(window.location.href, {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Remove row from table
+                const row = document.getElementById('admin-row-' + currentDeleteId);
+                if (row) {
+                    row.style.animation = 'fadeOut 0.3s ease';
+                    setTimeout(() => {
+                        row.remove();
+                        
+                        // Check if table is empty
+                        const rows = document.querySelectorAll('.cms-admin2-table tbody tr');
+                        if (rows.length === 0) {
+                            location.reload();
+                        }
+                    }, 300);
                 }
-            }, 500);
+                
+                // Show success message
+                alert(data.data.message);
+                closeDeleteModal();
+            } else {
+                alert('Error: ' + data.data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('An error occurred while deleting the admin.');
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = 'Delete Admin';
+        });
+    });
+    
+    // Close modal when clicking outside
+    window.onclick = function(event) {
+        const modal = document.getElementById('cms-delete-modal');
+        if (event.target === modal) {
+            closeDeleteModal();
         }
     }
     
-    document.addEventListener('DOMContentLoaded', function() {
-        var searchInput = document.getElementById('cms-admin2-search');
-        if (searchInput) {
-            searchInput.addEventListener('keyup', function() {
-                var searchTerm = this.value.toLowerCase();
-                var rows = document.querySelectorAll('.cms-admin2-table tbody tr');
-                
-                rows.forEach(function(row) {
-                    var text = row.textContent.toLowerCase();
-                    row.style.display = text.includes(searchTerm) ? '' : 'none';
-                });
-            });
+    // Add animation style
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes fadeOut {
+            from { opacity: 1; transform: translateX(0); }
+            to { opacity: 0; transform: translateX(-20px); }
         }
-        
-        var statusFilter = document.getElementById('filter-status');
-        var positionFilter = document.getElementById('filter-position');
-        
-        function applyFilters() {
-            var statusValue = statusFilter ? statusFilter.value.toLowerCase() : '';
-            var positionValue = positionFilter ? positionFilter.value.toLowerCase() : '';
-            var rows = document.querySelectorAll('.cms-admin2-table tbody tr');
-            
-            rows.forEach(function(row) {
-                var showRow = true;
-                
-                if (statusValue) {
-                    var statusCell = row.querySelector('.cms-badge2');
-                    if (statusCell && !statusCell.classList.contains(statusValue)) {
-                        showRow = false;
-                    }
-                }
-                
-                if (positionValue) {
-                    var positionCell = row.querySelector('.cms-position-badge');
-                    if (positionCell && positionCell.textContent.toLowerCase() !== positionValue) {
-                        showRow = false;
-                    }
-                }
-                
-                row.style.display = showRow ? '' : 'none';
-            });
-        }
-        
-        if (statusFilter) statusFilter.addEventListener('change', applyFilters);
-        if (positionFilter) positionFilter.addEventListener('change', applyFilters);
-    });
+    `;
+    document.head.appendChild(style);
     </script>
     
     <?php
@@ -586,84 +914,3 @@ function cms_list_admin_shortcode($atts) {
 
 add_shortcode('cms_list_admin', 'cms_list_admin_shortcode');
 add_shortcode(CMS_ADMIN_LIST_SHORTCODE, 'cms_list_admin_shortcode');
-
-function get_cms_mock_admin2_data() {
-    return array(
-        array(
-            'id' => 101,
-            'username' => 'sarah_ahmed',
-            'name' => 'Sarah Ahmed',
-            'email' => 'sarah.ahmed@example.com',
-            'father_name' => 'Ahmed Khan',
-            'position' => 'Senior Admin',
-            'contact' => '+1 234-567-8901',
-            'emergency' => '+1 234-567-8902',
-            'ref1_name' => 'Fatima Hassan',
-            'ref1_cno' => '+1 234-567-8903',
-            'ref2_name' => 'Omar Farooq',
-            'ref2_cno' => '+1 234-567-8904',
-            'status' => 'active'
-        ),
-        array(
-            'id' => 102,
-            'username' => 'mike_wilson',
-            'name' => 'Mike Wilson',
-            'email' => 'mike.wilson@example.com',
-            'father_name' => 'Robert Wilson',
-            'position' => 'Technical Admin',
-            'contact' => '+44 20 1234 5678',
-            'emergency' => '+44 20 1234 5679',
-            'ref1_name' => 'Lisa Cooper',
-            'ref1_cno' => '+44 20 1234 5680',
-            'ref2_name' => 'David Brown',
-            'ref2_cno' => '+44 20 1234 5681',
-            'status' => 'active'
-        ),
-        array(
-            'id' => 103,
-            'username' => 'priya_sharma',
-            'name' => 'Priya Sharma',
-            'email' => 'priya.sharma@example.com',
-            'father_name' => 'Rajesh Sharma',
-            'position' => 'HR Admin',
-            'contact' => '+91 98765 43210',
-            'emergency' => '+91 98765 43211',
-            'ref1_name' => 'Neha Gupta',
-            'ref1_cno' => '+91 98765 43212',
-            'ref2_name' => 'Rahul Verma',
-            'ref2_cno' => '+91 98765 43213',
-            'status' => 'pending'
-        ),
-        array(
-            'id' => 104,
-            'username' => 'ahmed_malik',
-            'name' => 'Ahmed Malik',
-            'email' => 'ahmed.malik@example.com',
-            'father_name' => 'Malik Ibrahim',
-            'position' => 'Finance Admin',
-            'contact' => '+92 300 7654321',
-            'emergency' => '+92 300 7654322',
-            'ref1_name' => 'Bilal Ahmed',
-            'ref1_cno' => '+92 300 7654323',
-            'ref2_name' => 'Sana Mirza',
-            'ref2_cno' => '+92 300 7654324',
-            'status' => 'inactive'
-        ),
-        array(
-            'id' => 105,
-            'username' => 'emma_watson',
-            'name' => 'Emma Watson',
-            'email' => 'emma.watson@example.com',
-            'father_name' => 'Chris Watson',
-            'position' => 'Operations Admin',
-            'contact' => '+1 345-678-9012',
-            'emergency' => '+1 345-678-9013',
-            'ref1_name' => 'Sophie Turner',
-            'ref1_cno' => '+1 345-678-9014',
-            'ref2_name' => 'Daniel Craig',
-            'ref2_cno' => '+1 345-678-9015',
-            'status' => 'active'
-        )
-    );
-}
-?>

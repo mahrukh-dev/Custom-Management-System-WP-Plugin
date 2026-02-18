@@ -1,7 +1,7 @@
 <?php
 /**
  * CMS View Admin Shortcode
- * Display detailed view of a single admin
+ * Display detailed view of a single admin from database
  * 
  * Usage: [cms_view_admin]
  * Usage: [cms_view_admin admin_id="101"]
@@ -17,18 +17,24 @@ if (!defined('CMS_ADMIN_VIEW_SHORTCODE')) {
     define('CMS_ADMIN_VIEW_SHORTCODE', 'cms_admin_view');
 }
 
+
+/**
+ * View Admin Shortcode
+ */
 function cms_view_admin_shortcode($atts) {
     $atts = shortcode_atts(
         array(
             'admin_id' => 0,
             'show_back_button' => 'yes',
             'show_edit_button' => 'yes',
+            'show_activity' => 'yes',
             'class' => ''
         ),
         $atts,
         'cms_view_admin'
     );
     
+    // Get admin ID from various sources
     $admin_id = $atts['admin_id'];
     if (!$admin_id) {
         $admin_id = get_query_var('admin_id');
@@ -37,22 +43,55 @@ function cms_view_admin_shortcode($atts) {
         }
     }
     
-    if (!$admin_id) {
-        return '<div style="padding: 30px; background: #fff3cd; color: #856404; border-radius: 12px; text-align: center; font-size: 16px;">🔍 Please select an admin to view.</div>';
+    // Also check for username parameter
+    if (!$admin_id && isset($_GET['username'])) {
+        $username = sanitize_user($_GET['username']);
+        $admin = cms_get_admin_by_username($username);
+        if ($admin) {
+            $admin_id = $admin['id'];
+        }
     }
     
-    $admin = get_cms_admin2_by_id($admin_id);
+    if (!$admin_id) {
+        return '<div style="padding: 30px; background: #fff3cd; color: #856404; border-radius: 12px; text-align: center; font-size: 16px;">
+            🔍 Please select an admin to view.
+        </div>';
+    }
+    
+    // Get admin data from database
+    $admin = cms_get_admin_by_id($admin_id);
     
     if (!$admin) {
-        return '<div style="padding: 30px; background: #ffe8e8; color: #b34141; border-radius: 12px; text-align: center; font-size: 16px;">❌ Admin not found.</div>';
+        return '<div style="padding: 30px; background: #ffe8e8; color: #b34141; border-radius: 12px; text-align: center; font-size: 16px;">
+            ❌ Admin not found in database.
+        </div>';
     }
+    
+    // Get activity summary
+    $activity_summary = array();
+    $recent_activities = array();
+    
+    if ($atts['show_activity'] === 'yes') {
+        $activity_summary = cms_get_admin_activity_summary($admin['username']);
+        $recent_activities = cms_get_admin_recent_activity($admin['username'], 5);
+    }
+    
+    // Format dates
+    $created_date = !empty($admin['created_at']) ? date('F j, Y', strtotime($admin['created_at'])) : 'N/A';
+    $created_time = !empty($admin['created_at']) ? date('g:i A', strtotime($admin['created_at'])) : '';
+    
+    $updated_date = !empty($admin['updated_at']) ? date('F j, Y', strtotime($admin['updated_at'])) : 'Never';
+    $updated_time = !empty($admin['updated_at']) ? date('g:i A', strtotime($admin['updated_at'])) : '';
+    
+    $last_login_date = !empty($admin['last_login']) ? date('F j, Y', strtotime($admin['last_login'])) : 'Never';
+    $last_login_time = !empty($admin['last_login']) ? date('g:i A', strtotime($admin['last_login'])) : '';
     
     ob_start();
     ?>
     
     <style>
     .cms-view2-container {
-        max-width: 900px;
+        max-width: 1000px;
         margin: 30px auto;
         background: #ffffff;
         border-radius: 24px;
@@ -81,6 +120,7 @@ function cms_view_admin_shortcode($atts) {
         color: white;
         margin-bottom: 20px;
         border: 4px solid rgba(255,255,255,0.2);
+        text-transform: uppercase;
     }
     
     .cms-view2-name {
@@ -97,6 +137,7 @@ function cms_view_admin_shortcode($atts) {
         display: flex;
         align-items: center;
         gap: 8px;
+        flex-wrap: wrap;
     }
     
     .cms-view2-badge {
@@ -106,6 +147,7 @@ function cms_view_admin_shortcode($atts) {
         font-size: 14px;
         font-weight: 600;
         margin-top: 10px;
+        text-transform: capitalize;
     }
     
     .cms-badge2-active {
@@ -123,10 +165,16 @@ function cms_view_admin_shortcode($atts) {
         color: white;
     }
     
+    .cms-badge2-suspended {
+        background: #6b7280;
+        color: white;
+    }
+    
     .cms-view2-nav {
         display: flex;
         gap: 20px;
         margin-top: 25px;
+        flex-wrap: wrap;
     }
     
     .cms-nav2-btn {
@@ -166,6 +214,10 @@ function cms_view_admin_shortcode($atts) {
         padding: 25px;
         border: 1px solid #e9edf2;
         transition: all 0.2s ease;
+    }
+    
+    .cms-info2-card:hover {
+        box-shadow: 0 5px 15px rgba(0,0,0,0.05);
     }
     
     .cms-card2-title {
@@ -216,6 +268,11 @@ function cms_view_admin_shortcode($atts) {
         border-radius: 16px;
         padding: 25px;
         border: 1px solid #e2e8f0;
+        transition: all 0.2s ease;
+    }
+    
+    .cms-ref2-card:hover {
+        border-color: #27ae60;
     }
     
     .cms-ref2-header {
@@ -240,11 +297,38 @@ function cms_view_admin_shortcode($atts) {
         font-size: 14px;
     }
     
+    .cms-activity2-summary {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+        margin-bottom: 30px;
+    }
+    
+    .cms-activity2-card {
+        background: linear-gradient(145deg, #f8fafc, #ffffff);
+        border-radius: 16px;
+        padding: 20px;
+        text-align: center;
+        border: 1px solid #e9edf2;
+    }
+    
+    .cms-activity2-number {
+        font-size: 32px;
+        font-weight: 700;
+        color: #27ae60;
+        margin-bottom: 5px;
+    }
+    
+    .cms-activity2-label {
+        font-size: 14px;
+        color: #718096;
+    }
+    
     .cms-timeline2 {
-        margin-top: 30px;
         background: #f8fafc;
         border-radius: 16px;
         padding: 25px;
+        margin-top: 30px;
     }
     
     .cms-timeline2-item {
@@ -252,10 +336,18 @@ function cms_view_admin_shortcode($atts) {
         gap: 15px;
         padding: 15px 0;
         border-bottom: 1px solid #e2e8f0;
+        transition: all 0.2s ease;
     }
     
     .cms-timeline2-item:last-child {
         border-bottom: none;
+    }
+    
+    .cms-timeline2-item:hover {
+        background: #ffffff;
+        padding-left: 15px;
+        padding-right: 15px;
+        border-radius: 8px;
     }
     
     .cms-timeline2-icon {
@@ -268,17 +360,140 @@ function cms_view_admin_shortcode($atts) {
         justify-content: center;
         color: #27ae60;
         font-size: 18px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    }
+    
+    .cms-timeline2-content {
+        flex: 1;
+    }
+    
+    .cms-timeline2-title {
+        font-weight: 600;
+        color: #2c3e50;
+        margin-bottom: 5px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    
+    .cms-timeline2-date {
+        font-size: 12px;
+        color: #718096;
+    }
+    
+    .cms-timeline2-status {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 10px;
+        font-weight: 500;
+        margin-left: 10px;
+    }
+    
+    .cms-status-approved {
+        background: #e3f7ec;
+        color: #0a5c36;
+    }
+    
+    .cms-status-pending {
+        background: #fff3cd;
+        color: #856404;
+    }
+    
+    .cms-status-rejected {
+        background: #ffe8e8;
+        color: #b34141;
     }
     
     .cms-position2-tag {
         display: inline-block;
         padding: 6px 16px;
-        background: #e8f5e9;
-        color: #1e8449;
+        background: rgba(255,255,255,0.2);
+        color: white;
         border-radius: 40px;
         font-size: 14px;
         font-weight: 600;
         margin-left: 15px;
+        border: 1px solid rgba(255,255,255,0.3);
+    }
+    
+    .cms-id2-badge {
+        background: rgba(255,255,255,0.1);
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        display: inline-block;
+        margin-left: 10px;
+    }
+    
+    .cms-action2-buttons {
+        display: flex;
+        gap: 15px;
+        margin-top: 30px;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+    }
+    
+    .cms-action2-btn {
+        padding: 12px 24px;
+        border-radius: 40px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        text-decoration: none;
+    }
+    
+    .cms-action2-btn.print {
+        background: white;
+        border: 2px solid #e2e8f0;
+        color: #4a5568;
+    }
+    
+    .cms-action2-btn.print:hover {
+        background: #f8fafc;
+        border-color: #cbd5e0;
+    }
+    
+    .cms-action2-btn.email {
+        background: #27ae60;
+        border: none;
+        color: white;
+    }
+    
+    .cms-action2-btn.email:hover {
+        background: #1e8449;
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(39,174,96,0.3);
+    }
+    
+    @media (max-width: 768px) {
+        .cms-view2-header {
+            padding: 30px 20px;
+        }
+        
+        .cms-view2-content {
+            padding: 25px 20px;
+        }
+        
+        .cms-info2-grid,
+        .cms-ref2-section,
+        .cms-activity2-summary {
+            grid-template-columns: 1fr;
+        }
+        
+        .cms-view2-nav {
+            flex-direction: column;
+        }
+        
+        .cms-nav2-btn {
+            width: 100%;
+            justify-content: center;
+        }
     }
     </style>
     
@@ -286,19 +501,23 @@ function cms_view_admin_shortcode($atts) {
         
         <div class="cms-view2-header">
             <div class="cms-view2-avatar">
-                <?php echo strtoupper(substr($admin['name'], 0, 1)); ?>
+                <?php echo esc_html(substr($admin['name'], 0, 1)); ?>
             </div>
             
-            <div style="display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px;">
                 <div>
-                    <h1 class="cms-view2-name"><?php echo esc_html($admin['name']); ?></h1>
+                    <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
+                        <h1 class="cms-view2-name"><?php echo esc_html($admin['name']); ?></h1>
+                        <span class="cms-id2-badge">ID: #<?php echo esc_html($admin['id']); ?></span>
+                    </div>
+                    
                     <div class="cms-view2-username">
                         <span>@<?php echo esc_html($admin['username']); ?></span>
                         <span style="opacity: 0.5;">•</span>
                         <span><?php echo esc_html($admin['email']); ?></span>
                     </div>
                     
-                    <div style="display: flex; align-items: center; gap: 15px;">
+                    <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
                         <span class="cms-view2-badge cms-badge2-<?php echo esc_attr($admin['status']); ?>">
                             <?php echo esc_html(ucfirst($admin['status'])); ?>
                         </span>
@@ -318,7 +537,7 @@ function cms_view_admin_shortcode($atts) {
                 <?php endif; ?>
                 
                 <?php if ($atts['show_edit_button'] === 'yes'): ?>
-                <a href="<?php echo esc_url(home_url('edit-admin2/' . $admin['id'])); ?>" class="cms-nav2-btn">
+                <a href="<?php echo esc_url(home_url('edit-admin?admin_id=' . $admin['id'])); ?>" class="cms-nav2-btn">
                     ✏️ Edit Profile
                 </a>
                 <?php endif; ?>
@@ -328,18 +547,35 @@ function cms_view_admin_shortcode($atts) {
         
         <div class="cms-view2-content">
             
+            <?php if ($atts['show_activity'] === 'yes' && !empty($activity_summary)): ?>
+            <div class="cms-activity2-summary">
+                <div class="cms-activity2-card">
+                    <div class="cms-activity2-number"><?php echo esc_html($activity_summary['requests_processed']); ?></div>
+                    <div class="cms-activity2-label">Requests Processed</div>
+                </div>
+                <div class="cms-activity2-card">
+                    <div class="cms-activity2-number"><?php echo esc_html($activity_summary['messages_sent']); ?></div>
+                    <div class="cms-activity2-label">Messages Sent</div>
+                </div>
+                <div class="cms-activity2-card">
+                    <div class="cms-activity2-number"><?php echo esc_html($activity_summary['messages_received']); ?></div>
+                    <div class="cms-activity2-label">Messages Received</div>
+                </div>
+            </div>
+            <?php endif; ?>
+            
             <div class="cms-info2-grid">
                 <div class="cms-info2-card">
                     <h3 class="cms-card2-title">📞 Contact Information</h3>
                     
                     <div class="cms-info2-row">
                         <span class="cms-info2-label">Phone Number</span>
-                        <span class="cms-info2-value"><?php echo esc_html($admin['contact']); ?></span>
+                        <span class="cms-info2-value"><?php echo esc_html($admin['contact_num'] ?: 'Not provided'); ?></span>
                     </div>
                     
                     <div class="cms-info2-row">
                         <span class="cms-info2-label">Emergency Contact</span>
-                        <span class="cms-info2-value"><?php echo esc_html($admin['emergency']); ?></span>
+                        <span class="cms-info2-value"><?php echo esc_html($admin['emergency_cno'] ?: 'Not provided'); ?></span>
                     </div>
                     
                     <div class="cms-info2-row">
@@ -349,12 +585,7 @@ function cms_view_admin_shortcode($atts) {
                 </div>
                 
                 <div class="cms-info2-card">
-                    <h3 class="cms-card2-title">🆔 ID Information</h3>
-                    
-                    <div class="cms-info2-row">
-                        <span class="cms-info2-label">Admin ID</span>
-                        <span class="cms-info2-value">#<?php echo esc_html($admin['id']); ?></span>
-                    </div>
+                    <h3 class="cms-card2-title">🆔 Account Information</h3>
                     
                     <div class="cms-info2-row">
                         <span class="cms-info2-label">Username</span>
@@ -369,6 +600,11 @@ function cms_view_admin_shortcode($atts) {
                     <div class="cms-info2-row">
                         <span class="cms-info2-label">Position</span>
                         <span class="cms-info2-value"><?php echo esc_html($admin['position']); ?></span>
+                    </div>
+                    
+                    <div class="cms-info2-row">
+                        <span class="cms-info2-label">Role</span>
+                        <span class="cms-info2-value"><?php echo esc_html(ucfirst($admin['role'])); ?></span>
                     </div>
                 </div>
             </div>
@@ -423,38 +659,85 @@ function cms_view_admin_shortcode($atts) {
                 <div class="cms-timeline2-item">
                     <div class="cms-timeline2-icon">📝</div>
                     <div class="cms-timeline2-content">
-                        <div class="cms-timeline2-title" style="font-weight: 600; color: #2c3e50; margin-bottom: 5px;">Account Created</div>
-                        <div class="cms-timeline2-date" style="font-size: 12px; color: #718096;">January 15, 2024 at 10:30 AM</div>
+                        <div class="cms-timeline2-title">Account Created</div>
+                        <div class="cms-timeline2-date"><?php echo esc_html($created_date); ?> at <?php echo esc_html($created_time); ?></div>
                     </div>
                 </div>
                 
                 <div class="cms-timeline2-item">
                     <div class="cms-timeline2-icon">🔄</div>
                     <div class="cms-timeline2-content">
-                        <div class="cms-timeline2-title" style="font-weight: 600; color: #2c3e50; margin-bottom: 5px;">Last Updated</div>
-                        <div class="cms-timeline2-date" style="font-size: 12px; color: #718096;">February 20, 2024 at 2:45 PM</div>
+                        <div class="cms-timeline2-title">Last Updated</div>
+                        <div class="cms-timeline2-date"><?php echo esc_html($updated_date); ?> <?php echo $updated_time ? 'at ' . esc_html($updated_time) : ''; ?></div>
                     </div>
                 </div>
                 
                 <div class="cms-timeline2-item">
                     <div class="cms-timeline2-icon">✓</div>
                     <div class="cms-timeline2-content">
-                        <div class="cms-timeline2-title" style="font-weight: 600; color: #2c3e50; margin-bottom: 5px;">Last Login</div>
-                        <div class="cms-timeline2-date" style="font-size: 12px; color: #718096;">Today at 9:15 AM</div>
+                        <div class="cms-timeline2-title">Last Login</div>
+                        <div class="cms-timeline2-date"><?php echo esc_html($last_login_date); ?> <?php echo $last_login_time ? 'at ' . esc_html($last_login_time) : ''; ?></div>
                     </div>
                 </div>
             </div>
             
-            <div style="margin-top: 30px; display: flex; gap: 15px; justify-content: flex-end;">
-                <button onclick="window.print()" style="padding: 12px 24px; background: white; border: 2px solid #e2e8f0; border-radius: 40px; color: #4a5568; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+            <?php if ($atts['show_activity'] === 'yes' && !empty($recent_activities)): ?>
+            <div class="cms-timeline2" style="margin-top: 20px;">
+                <h3 style="font-size: 18px; color: #1a2b3c; margin: 0 0 20px 0; display: flex; align-items: center; gap: 10px;">
+                    <span>📊</span> Recent Activity
+                </h3>
+                
+                <?php foreach ($recent_activities as $activity): ?>
+                <div class="cms-timeline2-item">
+                    <div class="cms-timeline2-icon">
+                        <?php echo $activity['type'] === 'request' ? '📋' : '💬'; ?>
+                    </div>
+                    <div class="cms-timeline2-content">
+                        <div class="cms-timeline2-title">
+                            <?php echo esc_html($activity['action']); ?>
+                            <?php if (isset($activity['status'])): ?>
+                                <span class="cms-timeline2-status cms-status-<?php echo esc_attr($activity['status']); ?>">
+                                    <?php echo esc_html(ucfirst($activity['status'])); ?>
+                                </span>
+                            <?php endif; ?>
+                        </div>
+                        <div style="font-size: 13px; color: #4a5568; margin-bottom: 3px;">
+                            <?php echo esc_html($activity['details']); ?>
+                        </div>
+                        <div class="cms-timeline2-date">
+                            <?php echo esc_html(date('F j, Y g:i A', strtotime($activity['time']))); ?>
+                        </div>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
+            
+            <div class="cms-action2-buttons">
+                <button onclick="window.print()" class="cms-action2-btn print">
                     🖨️ Print Profile
                 </button>
-                <a href="mailto:<?php echo esc_attr($admin['email']); ?>" style="padding: 12px 24px; background: #27ae60; border: none; border-radius: 40px; color: white; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; text-decoration: none;">
+                <a href="mailto:<?php echo esc_attr($admin['email']); ?>" class="cms-action2-btn email">
                     📧 Send Email
                 </a>
             </div>
         </div>
     </div>
+    
+    <script>
+    // Add print optimization
+    window.onbeforeprint = function() {
+        document.querySelectorAll('.cms-nav2-btn, .cms-action2-buttons').forEach(el => {
+            el.style.display = 'none';
+        });
+    };
+    
+    window.onafterprint = function() {
+        document.querySelectorAll('.cms-nav2-btn, .cms-action2-buttons').forEach(el => {
+            el.style.display = 'flex';
+        });
+    };
+    </script>
     
     <?php
     return ob_get_clean();
@@ -462,5 +745,3 @@ function cms_view_admin_shortcode($atts) {
 
 add_shortcode('cms_view_admin', 'cms_view_admin_shortcode');
 add_shortcode(CMS_ADMIN_VIEW_SHORTCODE, 'cms_view_admin_shortcode');
-
-?>
