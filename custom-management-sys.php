@@ -79,6 +79,10 @@ require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes/employee/cms_employee_da
 require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes/employee/cms_emp_shift_history_list.php';
 require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes/employee/cms_single_emp_shift_history.php';
 require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes/employee/cms_emp_shift_management.php';
+//dashboards
+require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes/dashboard/mainadmin-dashboard.php';
+require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes/dashboard/admin-dashboard.php';
+require_once CMS_PLUGIN_DIR_PATH . 'includes/shortcodes/dashboard/corporate-dashboard.php';
 
 
 // Load slug configuration

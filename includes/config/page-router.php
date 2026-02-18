@@ -158,6 +158,26 @@ function cms_create_required_pages() {
     'slug' => 'shift-management',
     'title' => 'Shift Management',
     'content' => '[cms_emp_shift_management title="Employee Shift Management" show_corp_filter="yes"]'
+],
+// Add these to your $pages_to_create array in cms_create_required_pages() function
+
+// ==============================================
+// DASHBOARD PAGES
+// ==============================================
+[
+    'slug' => 'mainadmin-dashboard',
+    'title' => 'Main Admin Dashboard',
+    'content' => '[cms_main_admin_dashboard title="Main Admin Dashboard" show_stats="yes" show_recent_activities="yes" show_system_health="yes"]'
+],
+[
+    'slug' => 'admin-dashboard',
+    'title' => 'Admin Dashboard',
+    'content' => '[cms_admin_dashboard title="Admin Dashboard" show_stats="yes" show_quick_actions="yes"]'
+],
+[
+    'slug' => 'corporate-dashboard',
+    'title' => 'Corporate Dashboard',
+    'content' => '[cms_corporate_dashboard title="Corporate Dashboard" show_stats="yes" show_employees="yes" show_shifts="yes" days_to_show="7"]'
 ]
     ];
 

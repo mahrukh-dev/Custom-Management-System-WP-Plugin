@@ -255,6 +255,45 @@ if (!defined('CMS_SINGLE_EMP_SHIFT_HISTORY_PAGE_TITLE')) {
     define('CMS_SINGLE_EMP_SHIFT_HISTORY_PAGE_TITLE', 'Employee Shift History');
 }
 
+// Add these to your slugs.php file in the appropriate sections
+
+// ==============================================
+// DASHBOARD PAGE SLUGS
+// ==============================================
+
+// Main Admin Dashboard
+if (!defined('CMS_MAIN_ADMIN_DASHBOARD_SHORTCODE')) {
+    define('CMS_MAIN_ADMIN_DASHBOARD_SHORTCODE', 'cms_main_admin_dashboard');
+}
+if (!defined('CMS_MAIN_ADMIN_DASHBOARD_PAGE_SLUG')) {
+    define('CMS_MAIN_ADMIN_DASHBOARD_PAGE_SLUG', 'mainadmin-dashboard');
+}
+if (!defined('CMS_MAIN_ADMIN_DASHBOARD_PAGE_TITLE')) {
+    define('CMS_MAIN_ADMIN_DASHBOARD_PAGE_TITLE', 'Main Admin Dashboard');
+}
+
+// Admin Dashboard
+if (!defined('CMS_ADMIN_DASHBOARD_SHORTCODE')) {
+    define('CMS_ADMIN_DASHBOARD_SHORTCODE', 'cms_admin_dashboard');
+}
+if (!defined('CMS_ADMIN_DASHBOARD_PAGE_SLUG')) {
+    define('CMS_ADMIN_DASHBOARD_PAGE_SLUG', 'admin-dashboard');
+}
+if (!defined('CMS_ADMIN_DASHBOARD_PAGE_TITLE')) {
+    define('CMS_ADMIN_DASHBOARD_PAGE_TITLE', 'Admin Dashboard');
+}
+
+// Corporate Dashboard
+if (!defined('CMS_CORPORATE_DASHBOARD_SHORTCODE')) {
+    define('CMS_CORPORATE_DASHBOARD_SHORTCODE', 'cms_corporate_dashboard');
+}
+if (!defined('CMS_CORPORATE_DASHBOARD_PAGE_SLUG')) {
+    define('CMS_CORPORATE_DASHBOARD_PAGE_SLUG', 'corporate-dashboard');
+}
+if (!defined('CMS_CORPORATE_DASHBOARD_PAGE_TITLE')) {
+    define('CMS_CORPORATE_DASHBOARD_PAGE_TITLE', 'Corporate Dashboard');
+}
+
 // ==============================================
 // URL PARAMETER SLUGS
 // ==============================================
