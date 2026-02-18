@@ -404,55 +404,64 @@ function cms_drop_database_tables() {
 /**
  * Database helper functions
  */
+// In database.php, around line 302, update these functions:
 
 // Get user by username
-function cms_get_user($username) {
-    global $wpdb;
-    $table = $wpdb->prefix . 'cms_users';
-    return $wpdb->get_row($wpdb->prepare(
-        "SELECT * FROM $table WHERE username = %s",
-        $username
-    ));
+if (!function_exists('cms_get_user')) {
+    function cms_get_user($username) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'cms_users';
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table WHERE username = %s",
+            $username
+        ));
+    }
 }
 
 // Check if username exists
-function cms_username_exists($username) {
-    global $wpdb;
-    $table = $wpdb->prefix . 'cms_users';
-    return $wpdb->get_var($wpdb->prepare(
-        "SELECT COUNT(*) FROM $table WHERE username = %s",
-        $username
-    )) > 0;
+if (!function_exists('cms_username_exists')) {
+    function cms_username_exists($username) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'cms_users';
+        return $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $table WHERE username = %s",
+            $username
+        )) > 0;
+    }
 }
 
 // Check if email exists in any user type
-function cms_email_exists($email) {
-    global $wpdb;
-    
-    $tables = [
-        $wpdb->prefix . 'cms_main_admin',
-        $wpdb->prefix . 'cms_admin',
-        $wpdb->prefix . 'cms_employee',
-        $wpdb->prefix . 'cms_corp_acc'
-    ];
-    
-    foreach ($tables as $table) {
-        $exists = $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM $table WHERE email = %s",
-            $email
-        ));
-        if ($exists > 0) {
-            return true;
+if (!function_exists('cms_email_exists')) {
+    function cms_email_exists($email) {
+        global $wpdb;
+        
+        $tables = [
+            $wpdb->prefix . 'cms_main_admin',
+            $wpdb->prefix . 'cms_admin',
+            $wpdb->prefix . 'cms_employee',
+            $wpdb->prefix . 'cms_corp_acc'
+        ];
+        
+        foreach ($tables as $table) {
+            $exists = $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM $table WHERE email = %s",
+                $email
+            ));
+            if ($exists > 0) {
+                return true;
+            }
         }
+        
+        return false;
     }
-    
-    return false;
 }
 
 // Get user role
-function cms_get_user_role($username) {
-    $user = cms_get_user($username);
-    return $user ? $user->role : null;
+if (!function_exists('cms_get_user_role')) {
+    function cms_get_user_role($username) {
+        $user = cms_get_user($username);
+        return $user ? $user->role : null;
+    }
 }
 
 // Update last login
